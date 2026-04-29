@@ -1,0 +1,16 @@
+{
+  "name": "cross-prediction",
+  "description": "CROSS Prediction Market (prediction.crossdefi.io) — list events, inspect markets, trade YES/NO Shares in BILL via three signing strategies (local PK / Playwright UI / CROSSx gateway).",
+  "author": {
+    "name": "to-nexus"
+  },
+  "homepage": "https://github.com/to-nexus/skill-cross-prediction",
+  "keywords": [
+    "cross-chain",
+    "prediction-market",
+    "ctf",
+    "bill",
+    "crossdefi",
+    "viem"
+  ]
+}
