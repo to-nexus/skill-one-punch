@@ -11,6 +11,8 @@ A Claude Code skill that drives the **CROSS Prediction Market** at [`prediction.
 
 > ⚠️ **This skill submits real EIP-712 orders that lock BILL collateral against outcome shares.** Trades are DRY-RUN by default; use `--live` to actually submit. Always set `MAX_TRADE_BILL` in `.env`. Read `skills/cross-prediction/SKILL.md` and the relevant signer module before using.
 
+> 🔒 **Private repository.** Owner (`to-nexus`) installs via `gh auth login`. Others need collaborator access or `GITHUB_TOKEN`. See the umbrella [`cross-skills-suite` README](https://github.com/to-nexus/cross-skills-suite#authenticating-to-private-repos) for details.
+
 ---
 
 ## Install — Recommended (via Marketplace)
