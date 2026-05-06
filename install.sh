@@ -34,7 +34,7 @@ else
 fi
 
 echo "↻ installing Node deps in $SKILL_SRC ..."
-( cd "$SKILL_SRC" && npm install --silent )
+( cd "$SKILL_SRC" && npm ci --silent )
 echo "✓ deps installed"
 
 if [ ! -f "$SKILL_SRC/.env" ]; then
