@@ -137,4 +137,4 @@ async function main() {
   });
 }
 
-main().catch((e) => fail('UNEXPECTED', e.message, { stack: e.stack }));
+main().catch((e) => fail('UNEXPECTED', e.message));

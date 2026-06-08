@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // list-events — search active / closed prediction events.
 //
-// Uses the public REST API at prediction-service-api.crossdefi.io (no auth needed).
+// Uses the public BILL prediction REST API (no auth needed).
 //
 // Usage:
 //   node scripts/list-events.mjs
@@ -80,4 +80,4 @@ async function main() {
   });
 }
 
-main().catch((e) => fail('UNEXPECTED', e.message, { stack: e.stack }));
+main().catch((e) => fail('UNEXPECTED', e.message));

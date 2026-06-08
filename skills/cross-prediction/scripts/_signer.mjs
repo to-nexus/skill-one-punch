@@ -4,8 +4,7 @@
 //   - Strategy A: a viem account derived from PRIVATE_KEY (local).
 //   - Strategy C: a CROSSx embedded-wallet gateway client (remote, PIN-gated).
 //
-// Strategy B (Playwright UI automation) does NOT use this interface — its
-// signing happens implicitly inside the website's PIN modal. See _trader-ui.mjs.
+// All distributable trading strategies use this interface.
 //
 // All signers MUST expose:
 //   strategy            : "A" | "C"

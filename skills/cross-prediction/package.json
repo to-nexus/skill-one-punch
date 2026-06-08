@@ -1,13 +1,12 @@
 {
   "name": "cross-prediction",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Claude Code skill for driving prediction.crossdefi.io (CROSS Chain prediction market).",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
   "dependencies": {
     "viem": "^2.21.0",
-    "node-html-parser": "^6.1.13",
-    "playwright": "^1.48.0"
+    "node-html-parser": "^6.1.13"
   }
 }

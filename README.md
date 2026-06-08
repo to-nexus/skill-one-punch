@@ -1,12 +1,13 @@
 # cross-prediction
 
-A Claude Code skill that drives the **CROSS Prediction Market** at [`prediction.crossdefi.io`](https://prediction.crossdefi.io/) on **CROSS Chain** (chain id `612055`). Lists active events, fetches event/market details with live orderbook prices, shows BILL + CROSS wallet balance + CTF Share holdings, reads settled market results, and places BILL-denominated YES/NO Share buy/sell through any of three interchangeable signing strategies.
+A Claude Code skill that drives the **CROSS Prediction Market** at [`prediction.crossdefi.io`](https://prediction.crossdefi.io/) on **CROSS Chain** (chain id `612055`). Lists active events, fetches event/market details with live orderbook prices, shows BILL + CROSS wallet balance + CTF Share holdings, reads settled market results, places BILL-denominated YES/NO Share buy/sell through explicit wallet execution strategies, and redeems winning Shares back into BILL.
 
-- **Stack:** Node 20+, viem, Playwright (optional)
+- **Stack:** Node 20+, viem
 - **Payment token:** BILL (ERC-20 on CROSS Chain)
 - **Outcome representation:** Conditional Token Framework (CTF) Shares
-- **Subcommands:** `list-events`, `get-event`, `get-results`, `balance`, `buy`, `sell`
-- **Trading strategies:** A (local PK + viem) · B (Playwright UI + PIN) · C (CROSSx gateway + PIN)
+- **Subcommands:** `list-events`, `get-event`, `get-results`, `balance`, `buy`, `sell`, `redeem`
+- **Trading strategies:** A (local viem signer) · C (configured CROSSx gateway signer)
+- **Live BILL API:** `https://pred-bill-service-api.crossdefi.io/api/v1`
 - **Distribution:** standalone Claude skill **and** Claude Code plugin
 
 > ⚠️ **This skill submits real EIP-712 orders that lock BILL collateral against outcome shares.** Trades are DRY-RUN by default; use `--live` to actually submit. Always set `MAX_TRADE_BILL` in `.env`. Read `skills/cross-prediction/SKILL.md` and the relevant signer module before using.
@@ -69,11 +70,10 @@ Strategy-specific:
 
 | Strategy | Vars | One-time setup |
 |---|---|---|
-| **A — local viem** | `PRIVATE_KEY=0x…` (64 hex) | none |
-| **B — Playwright UI** | `PIN=123456` (6 digit) | `node scripts/_login-capture.mjs` (writes `.auth/state.json`) |
-| **C — CROSSx gateway** | `PIN=123456` (6 digit) | `node scripts/_recon-gateway.mjs` (writes `.session/gateway.json`) |
+| **A — local viem** | local signer env/config | none |
+| **C — CROSSx gateway** | `PIN=123456` (6 digit) + configured gateway | maintainer-provided gateway config |
 
-Optional: `STRATEGY=A|B|C|auto` to force a specific path. Default `auto` prefers A → B → C.
+Optional: `STRATEGY=A|C|auto` to force a specific path. Default `auto` prefers A → C.
 
 The skill resolves `.env` from (in order): cwd → `~/.claude/skills/cross-prediction/` → asks once.
 
@@ -89,6 +89,7 @@ Inside Claude Code, just describe in plain language:
 - "buy 10 YES shares of <event> at max 0.55 BILL/share"
 - "sell all my YES shares of <event>"
 - "show settled results for event <id>"
+- "redeem my winning shares for market <id>"
 
 Direct CLI (skipping Claude):
 
@@ -101,13 +102,15 @@ node scripts/get-event.mjs <eventId>
 node scripts/balance.mjs --with-shares
 node scripts/get-results.mjs <eventId> --only-mine
 
-# Trading — DRY-RUN by default
+# Mutations — DRY-RUN by default
 node scripts/buy.mjs  <marketId> UP 1
 node scripts/sell.mjs <marketId> UP 1
+node scripts/redeem.mjs <marketId>
 
-# Trading — LIVE (auto-pick strategy from env)
+# LIVE (auto-pick strategy from env; redeem requires Strategy A)
 node scripts/buy.mjs  <marketId> UP 1 --live
 node scripts/buy.mjs  <marketId> UP 1 --live --strategy A   # force a specific strategy
+node scripts/redeem.mjs <marketId> --live --strategy A
 ```
 
 All commands emit a single JSON object on stdout (txHash, status, explorer URL, chosen strategy and reason).
@@ -131,12 +134,9 @@ skill-cross-prediction/                    # repo root = plugin
         ├── scripts/                       # 20 .mjs subcommand modules
         │   ├── _signer.mjs / _signer-a-viem.mjs / _signer-c-gateway.mjs
         │   ├── _strategy.mjs              # auto-router
-        │   ├── _trader-ui.mjs             # Strategy B (Playwright)
-        │   ├── _login-capture.mjs / _recon-gateway.mjs   # one-time setup
         │   ├── _auth.mjs / _order.mjs / _approval.mjs   # SIWE + EIP-712 + on-chain approve
         │   ├── _chain.mjs / _guard.mjs                  # viem client + safety
-        │   ├── _playwright-driver.mjs
-        │   ├── buy.mjs / sell.mjs / balance.mjs
+        │   ├── buy.mjs / sell.mjs / redeem.mjs / balance.mjs
         │   └── list-events.mjs / get-event.mjs / get-results.mjs
         └── references/
             ├── api-map.md                 # discovered + TODO internal endpoints
@@ -153,8 +153,8 @@ The skill enforces **five** independent rails (one more than `cross-dex-trade`):
 1. **Chain-id check.** RPC client re-verifies `eth_chainId == 612055` and aborts on mismatch.
 2. **MAX_TRADE_BILL cap.** Worst-case notional (`shares × maxPrice`) compared to the cap before submission.
 3. **User confirmation.** SKILL.md instructs Claude to require an explicit "yes / 진행" for any trade with notional > 1 BILL, rendering the parsed intent (event, side, price, amount, total, MAX cap, chosen strategy) as a human summary first.
-4. **Address mismatch abort.** Each strategy resolves an EOA at runtime (A: PK derive; C: gateway lookup; B: storageState). If `WALLET_ADDRESS` is set in env and the resolved address differs, abort with `ADDRESS_MISMATCH`.
-5. **Approval gap detection (Strategy C).** Strategy C cannot send on-chain `BILL.approve` / `CTF.setApprovalForAll` because the gateway only signs messages, not transactions. If allowance is missing, abort with `APPROVAL_GAP` and instruct the user to do one tiny manual trade through the website UI to set approvals once.
+4. **Address mismatch abort.** Each strategy resolves an EOA at runtime (A: local signer derive; C: gateway lookup). If `WALLET_ADDRESS` is set in env and the resolved address differs, abort with `ADDRESS_MISMATCH`.
+5. **On-chain gap detection (Strategy C).** Strategy C signs off-chain prediction orders through the configured gateway. On-chain approvals and `redeem` require Strategy A unless a gateway tx path is explicitly configured.
 
 Secrets handling: `PRIVATE_KEY` / `PIN` / SIWE-derived JWT never appear in the conversation transcript or in process argv (they go through `set -a; source .env; set +a` or `process.env`). `.auth/state.json` and `.session/gateway.json` are gitignored and never committed.
 
@@ -163,9 +163,8 @@ Secrets handling: `PRIVATE_KEY` / `PIN` / SIWE-derived JWT never appear in the c
 ## Limitations
 
 - **Prediction market only.** Gametoken DEX (`x.crosstoken.io`) is covered by [`cross-dex-trade`](https://github.com/to-nexus/skill-cross-dex-trade). Forge / CrossDefi swap-bridge / Rewards / NFT / Shop are out of scope here.
-- **Strategy B requires headful Playwright once.** `_login-capture.mjs` opens a real browser to capture an authenticated session; subsequent trades are headless.
-- **Strategy C cannot perform on-chain approvals.** First-time users on Strategy C must do one manual trade via the website UI to grant `BILL.approve` and `CTF.setApprovalForAll`. After that, Strategy C is fully autonomous.
-- **No automated outcome redemption yet.** `get-results --only-mine` surfaces redeemable positions, but the actual `redeemPositions` call is a planned v0.4 addition.
+- **Strategy C cannot perform on-chain approvals or redeem transactions in this distributable skill.** Use Strategy A for `BILL.approve`, `CTF.setApprovalForAll`, and `redeem`.
+- **Outcome redemption is supported through `redeem.mjs`.** `get-results --only-mine` surfaces redeemable positions; `redeem.mjs <marketId> --live --strategy A` calls `CTF.redeemPositions`.
 
 ---
 

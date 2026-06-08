@@ -1,23 +1,22 @@
 // _signer-c-gateway.mjs — Strategy C signer (CROSSx embedded-wallet gateway).
 //
 // Goal: let users who logged in with social (Google/Apple) sign the prediction
-// service's SIWE message and EIP-712 orders WITHOUT exporting a private key.
+// service's SIWE message and EIP-712 orders WITHOUT exporting wallet secrets.
 // The user only provides a 6-digit PIN; the gateway holds the key.
 //
 // This signer is configuration-driven because the gateway API has not been
 // publicly documented. The first run requires either:
-//   1. A captured config at  ~/.claude/skills/cross-prediction/.session/gateway.json
-//      (produced by `node scripts/_recon-gateway.mjs`), OR
-//   2. Manual override via env vars (CROSSX_GATEWAY_BASE, CROSSX_AUTH_TOKEN, …).
+//   1. A maintainer-provided config at ~/.claude/skills/cross-prediction/.session/gateway.json, OR
+//   2. Explicit env vars (CROSSX_GATEWAY_BASE, CROSSX_AUTH_TOKEN, ...).
 //
 // If neither is available, signMessage / signTypedData fail with a clear
-// GATEWAY_NOT_CONFIGURED error pointing at the recon tool.
+// GATEWAY_NOT_CONFIGURED error. The distributable skill does not ship browser
+// session capture tooling.
 //
 // Security:
 //   - PIN is sent ONLY over HTTPS to embedded-wallet-gateway.crosstoken.io.
-//   - Auth tokens are kept in process memory; never persisted to disk by the
-//     signer itself. (The recon tool may persist the *gateway base URL* and
-//     captured *endpoint shapes* — never the auth token or the PIN.)
+//   - Auth tokens are kept in process memory unless a user deliberately stores
+//     CROSSX_AUTH_TOKEN in their own 0600 env/config file.
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -29,7 +28,8 @@ const GATEWAY_CONFIG_PATH = resolve(SKILL_DIR, '.session', 'gateway.json');
 
 const DEFAULT_BASE = 'https://embedded-wallet-gateway.crosstoken.io/api/v1';
 
-// Best-guess endpoint shape. Override via gateway.json after running --recon.
+// Best-guess endpoint shape. Override via gateway.json or env when the gateway
+// contract is known.
 // This is intentionally conservative: if shapes don't match the live gateway,
 // we'd rather throw than silently sign the wrong payload.
 const HYPOTHESIS = Object.freeze({
@@ -53,12 +53,12 @@ const HYPOTHESIS = Object.freeze({
 });
 
 function loadGatewayConfig() {
-  // 1. ENV override always wins (use case: user pasted endpoint after manual capture).
+  // 1. ENV override always wins.
   const base = process.env.CROSSX_GATEWAY_BASE;
   if (base) {
     return { source: 'env', base, endpoints: HYPOTHESIS.endpoints, fields: HYPOTHESIS.fields };
   }
-  // 2. Captured config from recon.
+  // 2. Maintainer/user-provided config.
   if (existsSync(GATEWAY_CONFIG_PATH)) {
     try {
       const raw = JSON.parse(readFileSync(GATEWAY_CONFIG_PATH, 'utf8'));
@@ -67,14 +67,13 @@ function loadGatewayConfig() {
         base: raw.base ?? DEFAULT_BASE,
         endpoints: { ...HYPOTHESIS.endpoints, ...(raw.endpoints ?? {}) },
         fields:    { ...HYPOTHESIS.fields,    ...(raw.fields ?? {}) },
-        // captured social-login auth token (e.g. from cross-auth.crosstoken.io)
         authToken: raw.authToken ?? null,
       };
     } catch (e) {
       throw new Error(`gateway.json parse failed: ${e.message}`);
     }
   }
-  // 3. No config → caller must run recon first.
+  // 3. No config.
   return { source: 'none', base: DEFAULT_BASE, endpoints: HYPOTHESIS.endpoints, fields: HYPOTHESIS.fields };
 }
 
@@ -119,14 +118,13 @@ class GatewaySession {
     if (this.accessToken) return;
     if (this.cfg.source === 'none') {
       throw Object.assign(new Error(
-        'CROSSx gateway is not configured. Run `node scripts/_recon-gateway.mjs` once ' +
-        'while signed in, or set CROSSX_GATEWAY_BASE + CROSSX_AUTH_TOKEN env vars.',
+        'CROSSx gateway is not configured. Set CROSSX_GATEWAY_BASE + CROSSX_AUTH_TOKEN env vars or provide .session/gateway.json.',
       ), { code: 'GATEWAY_NOT_CONFIGURED' });
     }
     if (!this.socialAuthToken) {
       throw Object.assign(new Error(
         'CROSSx gateway requires a social-login auth token (CROSSX_AUTH_TOKEN env or in gateway.json). ' +
-        'The recon tool captures it for you.',
+        'Do not paste browser-derived auth material into chat.',
       ), { code: 'GATEWAY_NO_AUTH' });
     }
     // Step 1: verify PIN, receive a short-lived signing access token.

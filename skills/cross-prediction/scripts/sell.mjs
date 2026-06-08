@@ -2,8 +2,8 @@
 // sell — mirror of buy.mjs. DRY_RUN by default, --live to submit.
 // Default order type: MARKET. Pass --limit --min-price X for limit SELL.
 //
-// Strategies: A (PRIVATE_KEY), B (PIN + saved session), C (PIN + gateway recon).
-// Force with --strategy A|B|C or STRATEGY=… env.
+// Strategies: A (PRIVATE_KEY), C (PIN + gateway recon).
+// Force with --strategy A|C or STRATEGY=… env.
 //
 // Usage:
 //   node scripts/sell.mjs <marketId> <UP|DOWN|YES|NO|0|1> <shares> [--live]
@@ -134,9 +134,6 @@ async function main() {
   if (!strategyPlan.strategy) return fail('NO_STRATEGY', strategyPlan.reason ?? 'no usable strategy');
   if (!hasShares) return fail('INSUFFICIENT_SHARES', `wallet holds ${plan.holdings.currentShares} shares, need ${args.shares}`);
 
-  if (strategyPlan.strategy === 'B') {
-    return placeViaUI(plan, args);
-  }
   return placeViaApi(plan, args, walletAddress, strategyPlan.strategy, {
     market, outcome, opposite, approvedForAll,
   });
@@ -210,29 +207,4 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
   }
 }
 
-async function placeViaUI(plan, args) {
-  const { placeTradeUI } = await import('./_trader-ui.mjs');
-  let result;
-  try {
-    result = await placeTradeUI({
-      side: 'SELL',
-      marketId: args.marketId,
-      outcomeIndex: plan.outcome.outcomeIndex,
-      outcomeName: plan.outcome.name,
-      orderType: args.limit ? 'LIMIT' : 'MARKET',
-      amount: args.shares,
-      price: args.minPrice,
-      pin: process.env.PIN,
-      confirm: true,
-    });
-  } catch (e) {
-    return fail(e.code || 'UI_FAIL', e.message);
-  }
-  return printJson({
-    ...plan,
-    uiResult: result,
-    _notice: 'Strategy B placed the trade via the website UI; tx hash extracted from the receipt panel if available.',
-  });
-}
-
-main().catch((e) => fail('UNEXPECTED', e.message, { stack: e.stack }));
+main().catch((e) => fail('UNEXPECTED', e.message));

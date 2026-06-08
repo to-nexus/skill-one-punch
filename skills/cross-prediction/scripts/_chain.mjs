@@ -6,7 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 export const CROSS_CHAIN_ID = 612055;
 
 export const API_BASE =
-  process.env.PREDICTION_API_BASE ?? 'https://prediction-service-api.crossdefi.io/api/v1';
+  process.env.PREDICTION_API_BASE ?? 'https://pred-bill-service-api.crossdefi.io/api/v1';
 
 export const crossChain = defineChain({
   id: CROSS_CHAIN_ID,
@@ -51,6 +51,17 @@ export const ERC1155_ABI = [
     outputs: [{ type: 'uint256[]' }] },
 ];
 
+export const CTF_REDEEM_ABI = [
+  { type: 'function', name: 'redeemPositions', stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'collateralToken', type: 'address' },
+      { name: 'parentCollectionId', type: 'bytes32' },
+      { name: 'conditionId', type: 'bytes32' },
+      { name: 'indexSets', type: 'uint256[]' },
+    ],
+    outputs: [] },
+];
+
 // Exchange ABI subset needed for nonce read (trading writes come in Phase 2.2).
 export const EXCHANGE_ABI = [
   { type: 'function', name: 'getMinValidNonce', stateMutability: 'view',
@@ -79,7 +90,7 @@ export async function apiGet(path, { headers = {}, timeoutMs = 10_000 } = {}) {
       headers: { accept: 'application/json', ...headers },
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
+    if (!res.ok || body?.code < 0) {
       const err = new Error(body?.data || body?.message || `HTTP ${res.status}`);
       err.status = res.status;
       err.body = body;

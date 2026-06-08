@@ -2,7 +2,7 @@
 //
 // Flow (captured from the live service on 2026-04-24):
 //   1. POST https://cross-auth.crosstoken.io/cross-auth/login/unsigned-hash
-//        body: { address, domain, chainId }
+//        body: { address, domain, chain_id }
 //        headers: must set origin+referer to https://prediction.crossdefi.io
 //        → { hash, message }  (SIWE message string)
 //   2. signer.signMessage(message) — EIP-191 personal_sign
@@ -15,8 +15,7 @@
 // JWT is cached in memory only — never written to disk.
 
 const AUTH_BASE = process.env.CROSS_AUTH_BASE ?? 'https://cross-auth.crosstoken.io/cross-auth';
-const PRED_DOMAIN = 'prediction.crossdefi.io';
-const PRED_ORIGIN = `https://${PRED_DOMAIN}`;
+const PRED_ORIGIN = 'https://prediction.crossdefi.io';
 
 function authHeaders() {
   return {
@@ -64,7 +63,7 @@ export async function login(signer) {
 
   // 1) fetch unsigned hash + SIWE message
   const { message } = await postJson(`${AUTH_BASE}/login/unsigned-hash`, {
-    address, domain: PRED_DOMAIN, chainId: 612055,
+    address, domain: PRED_ORIGIN, chain_id: 612055,
   });
   if (typeof message !== 'string' || !message.includes('wants you to sign in')) {
     throw new Error(`unexpected SIWE message: ${String(message).slice(0, 120)}`);
@@ -75,7 +74,7 @@ export async function login(signer) {
 
   // 3) exchange for JWT
   const tokens = await postJson(`${AUTH_BASE}/login/token`, {
-    address, signature, domain: PRED_DOMAIN,
+    address, signature, domain: PRED_ORIGIN,
   });
 
   // Shape observed: { token, refresh } — accept aliases defensively.

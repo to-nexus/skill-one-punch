@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// buy — Phase 2.2 (Strategy A / B / C, ADR-002 + ADR-003).
+// buy — Phase 2.2 (Strategy A / C, ADR-002 + ADR-003).
 //
 // Default order type: MARKET. Pass --limit --max-price X for LIMIT.
 // DRY-RUN by default. Pass --live to auth + sign + submit.
@@ -10,9 +10,8 @@
 //
 // Strategies:
 //   A (default if PRIVATE_KEY set) : viem local signer, full server-API path
-//   B (default if PIN + saved session) : Playwright UI automation
 //   C (default if PIN only)        : CROSSx gateway remote signer, server-API path
-// Force a strategy with --strategy A|B|C  or  STRATEGY=A|B|C env.
+// Force a strategy with --strategy A|C  or  STRATEGY=A|C env.
 //
 // Usage:
 //   node scripts/buy.mjs <marketId> <UP|DOWN|YES|NO|0|1> <billAmount>
@@ -145,9 +144,6 @@ async function main() {
   if (!strategyPlan.strategy) return fail('NO_STRATEGY', strategyPlan.reason ?? 'no usable strategy');
   if (!fundsOk) return fail('INSUFFICIENT_FUNDS', `wallet has ${plan.balance.currentBill} BILL, need ${plan.allowance.requiredBill}`);
 
-  if (strategyPlan.strategy === 'B') {
-    return placeViaUI(plan, args, walletAddress);
-  }
   return placeViaApi(plan, args, walletAddress, strategyPlan.strategy, {
     market, outcome, opposite, allowanceOk, requiredWei,
   });
@@ -221,29 +217,4 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
   }
 }
 
-async function placeViaUI(plan, args, walletAddress) {
-  const { placeTradeUI } = await import('./_trader-ui.mjs');
-  let result;
-  try {
-    result = await placeTradeUI({
-      side: 'BUY',
-      marketId: args.marketId,
-      outcomeIndex: plan.outcome.outcomeIndex,
-      outcomeName: plan.outcome.name,
-      orderType: args.limit ? 'LIMIT' : 'MARKET',
-      amount: args.amount,
-      price: args.maxPrice,
-      pin: process.env.PIN,
-      confirm: true,
-    });
-  } catch (e) {
-    return fail(e.code || 'UI_FAIL', e.message);
-  }
-  return printJson({
-    ...plan,
-    uiResult: result,
-    _notice: 'Strategy B placed the trade via the website UI; tx hash extracted from the receipt panel if available.',
-  });
-}
-
-main().catch((e) => fail('UNEXPECTED', e.message, { stack: e.stack }));
+main().catch((e) => fail('UNEXPECTED', e.message));

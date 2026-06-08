@@ -45,21 +45,14 @@ NEXT STEPS
        cp $SKILL_SRC/.env.example $SKILL_SRC/.env
        chmod 600 $SKILL_SRC/.env
      Then pick ONE strategy and fill required vars:
-       Strategy A: PRIVATE_KEY=0x...           (local viem signer)
-       Strategy B: PIN=123456                  (Playwright UI automation; +$SKILL_SRC/.auth/state.json)
+       Strategy A: local signer env/config
        Strategy C: PIN=123456                  (CROSSx gateway; +$SKILL_SRC/.session/gateway.json)
      Always set MAX_TRADE_BILL (default 100, recommend 10 for new users).
 
-  2. (Strategy B or C only) Install Playwright Chromium:
-       cd $SKILL_SRC && npx playwright install chromium
-
-  3. (Strategy B only) Capture an authenticated browser session (one-time):
-       cd $SKILL_SRC && node scripts/_login-capture.mjs
-
-  4. (Strategy C only) Capture the CROSSx gateway endpoints (one-time):
+  2. (Strategy C only) Configure the CROSSx gateway endpoints (maintainer setup):
        cd $SKILL_SRC && node scripts/_recon-gateway.mjs
 
-  5. Try it from Claude Code:
+  3. Try it from Claude Code:
        "list active CROSS prediction events"
        "show BILL balance"
 

@@ -1,7 +1,9 @@
-# Internal API Map — prediction-service-api.crossdefi.io
+# Internal API Map — CROSS Prediction APIs
 
-**Base URL**: `https://prediction-service-api.crossdefi.io/api/v1`
-**Captured at**: 2026-04-24 (via JS bundle recon + direct probes — no user DevTools needed)
+**Default BILL Base URL**: `https://pred-bill-service-api.crossdefi.io/api/v1`
+**Alternate CROSS Base URL**: `https://pred-cross-service-api.crossdefi.io/api/v1`
+**Legacy Base URL**: `https://prediction-service-api.crossdefi.io/api/v1` (retired; CloudFront returns 502 because the origin domain no longer resolves)
+**Mapped at**: 2026-04-24; default refreshed 2026-06-08 from live frontend bundle + direct probes.
 
 ## Response envelope
 
@@ -26,7 +28,7 @@ On error: `code` is a negative number (e.g. `-30001` INVALID_PARAMETER, `-30002`
 | 8 | Market orderbook | ✅ | `GET /markets/{marketId}/orderbook?outcomeIndex={0\|1}` |
 | 9 | Market candles | ✅ | `GET /markets/{marketId}/candles?interval={...}` |
 | 10 | Index prices (oracle) | ✅ | `GET /index-prices/{SYMBOL}` (e.g. `BTCUSDT`) |
-| 11 | WebSocket (live ticks) | (not exercised here) | `wss://prediction-service-api.crossdefi.io/api/v1/ws` — auth token via `getToken` callback |
+| 11 | WebSocket (live ticks) | (not exercised here) | service-specific `/api/v1/ws` — auth token via `getToken` callback |
 
 ### Valid enums (from error-driven discovery)
 
@@ -98,13 +100,37 @@ Body posted to `/orders/place/limit`:
 }
 ```
 
-## Login payload (not yet probed)
+## Login payload
 
-Expected sequence:
-1. `POST /login/unsigned-hash` with `{ address: "0x…" }` → `{ hash: "0x…" }`
-2. Sign `hash` with EOA (personal_sign or eth_signTypedData)
-3. `POST /login/token` with `{ address, signature }` → `{ accessToken, refreshToken }`
+Verified live sequence on 2026-06-08:
+1. `POST https://cross-auth.crosstoken.io/cross-auth/login/unsigned-hash`
+   with `{ address, domain: "https://prediction.crossdefi.io", chain_id: 612055 }`
+   and `Origin` / `Referer` set to `https://prediction.crossdefi.io`.
+2. Sign the returned SIWE message with the selected EOA signer.
+3. `POST https://cross-auth.crosstoken.io/cross-auth/login/token`
+   with `{ address, signature, domain: "https://prediction.crossdefi.io" }`
+   → `{ token, refresh }`.
 4. Send `Authorization: Bearer {accessToken}` on subsequent requests
+
+Using bare `prediction.crossdefi.io` as the domain can mint a token that the prediction API rejects with `Session token invalid or revoked`.
+
+## Redemption
+
+Winning settled CTF shares redeem through the CTF contract, not the REST API:
+
+```solidity
+redeemPositions(
+  address collateralToken,      // BILL
+  bytes32 parentCollectionId,   // 0x00...00
+  bytes32 conditionId,
+  uint256[] indexSets           // outcomeIndex 0 => [1], outcomeIndex 1 => [2]
+)
+```
+
+Verified live on 2026-06-08 against a BTC 1-minute market:
+- winning outcome `UP` / `outcomeIndex=0`
+- `indexSets=[1]`
+- `181` winning shares redeemed into `181 BILL`
 
 CROSSx embedded-wallet side (for users without an exported EOA):
 - `https://cross-auth.crosstoken.io/…` (Google/Apple OAuth entry)
