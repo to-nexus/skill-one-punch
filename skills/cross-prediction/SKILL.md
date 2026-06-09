@@ -51,6 +51,12 @@ Env resolution priority:
 
 Never echo `PRIVATE_KEY`, `PIN`, raw `.env`, gateway auth material, or signed payload secrets into the conversation. Do not pass secrets in Bash argv; source env files or pass through process env.
 
+For personal testing, the default `env` backend reads the key from local
+environment variables or a gitignored `.env` file. For team, hosted-agent, or
+production funds, prefer Vault Transit, KMS, or HSM-backed signing so the raw
+key is not exported to the agent runtime. Strategy C remains for configured
+CROSSx gateway signing.
+
 Required for wallet-specific reads/trades:
 
 - `WALLET_ADDRESS=0x...`

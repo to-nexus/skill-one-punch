@@ -127,11 +127,6 @@ redeemPositions(
 )
 ```
 
-Verified live on 2026-06-08 against a BTC 1-minute market:
-- winning outcome `UP` / `outcomeIndex=0`
-- `indexSets=[1]`
-- `181` winning shares redeemed into `181 BILL`
-
 CROSSx embedded-wallet side (for users without an exported EOA):
 - `https://cross-auth.crosstoken.io/…` (Google/Apple OAuth entry)
 - `https://embedded-wallet-gateway.crosstoken.io/api/v1/…` (PIN auth + wallet ops, including `/mnemonic/*` → PK export likely supported)
