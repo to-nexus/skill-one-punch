@@ -1,16 +1,17 @@
 {
   "name": "cross-prediction",
-  "description": "CROSS Prediction Market (prediction.crossdefi.io) — list events, inspect markets, trade YES/NO Shares in BILL via three signing strategies (local PK / Playwright UI / CROSSx gateway).",
+  "description": "PUNCH.WIN prediction market — list events, inspect markets, trade YES/NO Shares on the usd (pONEUSD) and free-to-play point markets, redeem winnings, and claim POINT (daily rewards + weekly seasons) via a local signer.",
   "author": {
     "name": "to-nexus"
   },
-  "homepage": "https://github.com/to-nexus/skill-cross-prediction",
+  "homepage": "https://github.com/to-nexus/skill-one-punch",
   "keywords": [
     "cross-chain",
     "prediction-market",
     "ctf",
-    "bill",
-    "crossdefi",
+    "punch-win",
+    "oneusd",
+    "free-to-play",
     "viem"
   ]
 }
