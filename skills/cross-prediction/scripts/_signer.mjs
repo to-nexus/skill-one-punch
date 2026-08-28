@@ -1,10 +1,11 @@
-// _signer.mjs — common signer interface used by Strategy A and Strategy C.
+// _signer.mjs — the signer interface used by the local viem signer.
 //
 // A `Signer` abstracts away "who actually holds the key":
 //   - Strategy A: a viem account derived from PRIVATE_KEY (local).
-//   - Strategy C: a CROSSx embedded-wallet gateway client (remote, PIN-gated).
 //
-// All distributable trading strategies use this interface.
+// The remote gateway signer was removed: it cannot submit transactions.
+//
+// All execution paths use this interface.
 //
 // All signers MUST expose:
 //   strategy            : "A" | "C"

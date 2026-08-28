@@ -24,14 +24,25 @@ export async function assertChainId() {
   }
 }
 
-export function capTrade({ sideBill }) {
-  const max = Number(process.env.MAX_TRADE_BILL ?? '100');
+/**
+ * Cap a single trade's notional. The env var is per market so that a generous
+ * POINT cap (free money) cannot silently apply to pONEUSD (real money).
+ *
+ *   MAX_TRADE_ONEUSD — usd market, default 10
+ *   MAX_TRADE_POINT  — point market, default 1000
+ */
+export function capTrade({ notional, market }) {
+  const key = market?.key ?? market ?? 'point';
+  const envName = key === 'usd' ? 'MAX_TRADE_ONEUSD' : 'MAX_TRADE_POINT';
+  const fallback = key === 'usd' ? '10' : '1000';
+  const max = Number(process.env[envName] ?? fallback);
   if (!Number.isFinite(max) || max <= 0) {
-    throw new Error('MAX_TRADE_BILL must be a positive number');
+    throw new Error(`${envName} must be a positive number`);
   }
-  if (sideBill > max) {
+  if (notional > max) {
+    const unit = key === 'usd' ? 'pONEUSD' : 'POINT';
     throw new Error(
-      `Trade notional ${sideBill} BILL exceeds MAX_TRADE_BILL=${max}. ` +
+      `Trade notional ${notional} ${unit} exceeds ${envName}=${max}. ` +
       `Raise the cap explicitly if this is intentional.`,
     );
   }

@@ -16,8 +16,9 @@
 
 import { formatUnits } from 'viem';
 import {
-  apiGet, getPublicClient, KNOWN_ADDRESSES, ERC1155_ABI,
+  apiGet, getPublicClient, loadMarketConfig, ERC1155_ABI,
 } from './_chain.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -34,6 +35,10 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  let venue;
+  let cfg;
+  ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
+  cfg = await loadMarketConfig(venue.key);
   const { eventId, onlyMine, limit } = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(eventId ?? '')) {
     return fail('BAD_ARG', 'eventId required (UUID)');
@@ -46,7 +51,7 @@ async function main() {
 
   let page;
   try {
-    page = await apiGet(`/events/${eventId}/markets?status=REDEEMABLE&limit=${limit}`);
+    page = await apiGet(`/events/${eventId}/markets?status=REDEEMABLE&limit=${limit}`, { market: venue });
   } catch (e) {
     return fail('API_FAIL', e.message, { status: e.status });
   }
@@ -61,7 +66,7 @@ async function main() {
     const client = getPublicClient();
     try {
       const balances = await client.readContract({
-        address: KNOWN_ADDRESSES.ctf,
+        address: cfg.ctf,
         abi: ERC1155_ABI,
         functionName: 'balanceOfBatch',
         args: [accounts, allTokenIds.map((id) => BigInt(id))],
@@ -108,6 +113,8 @@ async function main() {
   });
 
   printJson({
+    market: venue.key,
+    _marketNote: marketReason ?? undefined,
     eventId,
     onlyMine,
     walletAddress: onlyMine ? walletAddress : undefined,

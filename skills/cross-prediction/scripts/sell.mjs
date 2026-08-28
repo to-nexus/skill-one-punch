@@ -2,7 +2,7 @@
 // sell — mirror of buy.mjs. DRY_RUN by default, --live to submit.
 // Default order type: MARKET. Pass --limit --min-price X for limit SELL.
 //
-// Strategies: A (PRIVATE_KEY), C (PIN + gateway recon).
+// Execution: local viem signer (PRIVATE_KEY).
 // Force with --strategy A|C or STRATEGY=… env.
 //
 // Usage:
@@ -11,8 +11,9 @@
 
 import { formatUnits, parseUnits } from 'viem';
 import {
-  apiGet, getPublicClient, KNOWN_ADDRESSES, ERC1155_ABI,
+  apiGet, getPublicClient, loadMarketConfig, ERC1155_ABI,
 } from './_chain.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import {
   assertChainId, capTrade, requireWalletAddress, printJson, fail,
 } from './_guard.mjs';
@@ -46,6 +47,9 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  let venue;
+  let cfg;
+  let marketReason;
   const args = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(args.marketId ?? ''))
     return fail('BAD_ARG', 'marketId must be a UUID');
@@ -55,16 +59,19 @@ async function main() {
   if (!Number.isFinite(args.shares) || args.shares <= 0)
     return fail('BAD_ARG', 'shares must be positive');
   if (args.limit && (args.minPrice == null || !(args.minPrice > 0 && args.minPrice < 1)))
-    return fail('BAD_ARG', '--limit requires --min-price in (0, 1) BILL/share');
+    return fail('BAD_ARG', '--limit requires --min-price in (0, 1) collateral/share');
 
   let walletAddress;
   try {
     walletAddress = requireWalletAddress();
     await assertChainId();
+    ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
+    cfg = await loadMarketConfig(venue.key);
+
   } catch (e) { return fail('GUARD_FAIL', e.message); }
 
   let market;
-  try { market = await apiGet(`/markets/${args.marketId}`); }
+  try { market = await apiGet(`/markets/${args.marketId}`, { market: venue }); }
   catch (e) { return fail('API_FAIL', `market fetch: ${e.message}`); }
 
   if (market.status !== 'ACTIVE' || !market.tradable) {
@@ -76,7 +83,7 @@ async function main() {
   if (!outcome || !opposite) return fail('BAD_MARKET', 'outcomes missing expected indices');
 
   let orderbookSnap;
-  try { orderbookSnap = await apiGet(`/markets/${args.marketId}/orderbook?outcomeIndex=${outcomeIndex}`); } catch {}
+  try { orderbookSnap = await apiGet(`/markets/${args.marketId}/orderbook?outcomeIndex=${outcomeIndex}`, { market: venue }); } catch {}
   const bestBid = orderbookSnap?.bestBid ? Number(orderbookSnap.bestBid) : null;
 
   const priceForCap = args.limit ? args.minPrice : (bestBid ?? 1);
@@ -86,7 +93,7 @@ async function main() {
 
   const pub = getPublicClient();
   const shareBalance = await pub.readContract({
-    address: KNOWN_ADDRESSES.ctf, abi: ERC1155_ABI, functionName: 'balanceOf',
+    address: cfg.ctf, abi: ERC1155_ABI, functionName: 'balanceOf',
     args: [walletAddress, BigInt(outcome.tokenId)],
   });
   const requiredShareWei = parseUnits(String(args.shares), 18);
@@ -98,8 +105,8 @@ async function main() {
       outputs: [{ type: 'bool' }] },
   ];
   const approvedForAll = await pub.readContract({
-    address: KNOWN_ADDRESSES.ctf, abi: ERC1155_APPROVAL_ABI, functionName: 'isApprovedForAll',
-    args: [walletAddress, KNOWN_ADDRESSES.exchange],
+    address: cfg.ctf, abi: ERC1155_APPROVAL_ABI, functionName: 'isApprovedForAll',
+    args: [walletAddress, cfg.exchange],
   });
 
   let strategyPlan;
@@ -123,7 +130,7 @@ async function main() {
     feePpm: market.feePpm,
     holdings: { currentShares: formatUnits(shareBalance, 18), sharesOk: hasShares },
     ctfApprovedForAll: approvedForAll,
-    maxTradeBillCap: Number(process.env.MAX_TRADE_BILL ?? '100'),
+    maxTradeCap: Number(process.env[venue.key === 'usd' ? 'MAX_TRADE_ONEUSD' : 'MAX_TRADE_POINT'] ?? (venue.key === 'usd' ? '10' : '1000')),
   };
 
   if (!args.live) {
@@ -145,7 +152,7 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
   catch (e) { return fail(e.code || 'SIGNER_FAIL', e.message); }
   try {
     if (signer.address.toLowerCase() !== walletAddress.toLowerCase()) {
-      return fail('ADDRESS_MISMATCH', `${strategy === 'A' ? 'PRIVATE_KEY' : 'gateway wallet'} resolves to ${signer.address}, WALLET_ADDRESS is ${walletAddress}`);
+      return fail('ADDRESS_MISMATCH', `PRIVATE_KEY resolves to ${signer.address}, WALLET_ADDRESS is ${walletAddress}`);
     }
 
     let approvalResult = null;
@@ -154,8 +161,8 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
         approvalResult = await ensureCtfApprovedForAll(signer.walletClient, signer.account);
       } else {
         return fail('APPROVAL_GAP',
-          'Strategy C cannot send on-chain approvals from outside the website. ' +
-          'Open prediction.crossdefi.io once and execute a tiny SELL through the UI to set CTF approval, then retry.',
+          '' +
+          'Open punch.win once and execute a tiny SELL through the UI to set CTF approval, then retry.',
         );
       }
     }

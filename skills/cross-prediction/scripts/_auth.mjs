@@ -3,19 +3,22 @@
 // Flow (captured from the live service on 2026-04-24):
 //   1. POST https://cross-auth.crosstoken.io/cross-auth/login/unsigned-hash
 //        body: { address, domain, chain_id }
-//        headers: must set origin+referer to https://prediction.crossdefi.io
+//        headers: must set origin+referer to the live app origin (punch.win)
 //        → { hash, message }  (SIWE message string)
 //   2. signer.signMessage(message) — EIP-191 personal_sign
-//      • Strategy A: signs locally with viem account
-//      • Strategy C: signs remotely via CROSSx gateway (PIN-gated)
+//      • signed locally with the viem account (Strategy A)
 //   3. POST /login/token
 //        body: { address, signature, domain }
 //        → { token, refresh }  ← prediction-service JWT
 //
 // JWT is cached in memory only — never written to disk.
 
+import { AUTH_ORIGIN } from './_markets.mjs';
+
 const AUTH_BASE = process.env.CROSS_AUTH_BASE ?? 'https://cross-auth.crosstoken.io/cross-auth';
-const PRED_ORIGIN = 'https://prediction.crossdefi.io';
+// The auth service validates Origin/Referer against the calling app. The product
+// moved to punch.win; sending the old prediction.crossdefi.io origin gets rejected.
+const PRED_ORIGIN = AUTH_ORIGIN;
 
 function authHeaders() {
   return {
@@ -23,7 +26,7 @@ function authHeaders() {
     'accept': 'application/json',
     'origin': PRED_ORIGIN,
     'referer': PRED_ORIGIN + '/',
-    'user-agent': 'cross-prediction-skill/0.3',
+    'user-agent': 'punch-prediction-skill/0.4',
   };
 }
 

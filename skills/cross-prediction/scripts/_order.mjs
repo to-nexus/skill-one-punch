@@ -5,8 +5,8 @@
 //   side      : 0=BUY, 1=SELL
 //   orderType : 0=MARKET, 1=LIMIT (GTC)
 //   makerAmount/takerAmount : *uint256*, 18-decimal scaling for both sides
-//     LIMIT BUY : makerAmount = price*qty*1e18 (BILL offered), takerAmount = qty*1e18 (shares)
-//     LIMIT SELL: makerAmount = qty*1e18 (shares offered),     takerAmount = price*qty*1e18 (BILL)
+//     LIMIT BUY : makerAmount = price*qty*1e18 (collateral offered), takerAmount = qty*1e18 (shares)
+//     LIMIT SELL: makerAmount = qty*1e18 (shares offered),     takerAmount = price*qty*1e18 (collateral)
 //   expiration: uint256 seconds (client default now+30d; never 0)
 //   salt      : random bytes32
 //   nonce     : Exchange.getMinValidNonce(maker) — read on-chain
@@ -14,17 +14,19 @@
 // After signTypedData, POST to /orders/place/limit (Bearer JWT).
 
 import { parseUnits } from 'viem';
+import { AUTH_ORIGIN } from './_markets.mjs';
 import {
-  API_BASE, getPublicClient, KNOWN_ADDRESSES, EXCHANGE_ABI,
+  API_BASE, getPublicClient, loadMarketConfig, EXCHANGE_ABI,
 } from './_chain.mjs';
 
 export const SIDE = { BUY: 0, SELL: 1 };
 export const ORDER_TYPE = { MARKET: 0, LIMIT: 1, IOC: 2, FOK: 3 };
 
-export async function readMinValidNonce(maker) {
+export async function readMinValidNonce(maker, market) {
+  const cfg = await loadMarketConfig(market?.key ?? market);
   const pub = getPublicClient();
   return pub.readContract({
-    address: KNOWN_ADDRESSES.exchange,
+    address: cfg.exchange,
     abi: EXCHANGE_ABI,
     functionName: 'getMinValidNonce',
     args: [maker],
@@ -74,18 +76,18 @@ export function buildLimitOrder({ marketOutcome, side, shares, price, feePpm, ma
  * Build an unsigned Order struct for a MARKET order.
  *
  *  ⚠ Empirical semantics (verified by live trade 2026-04-24):
- *  - MARKET BUY  : the frontend's `u` = **BILL notional to spend**, not shares.
- *                  makerAmount = takerAmount = billAmount × 1e18.
- *                  Fill ≈ floor(billAmount / avgFillPrice) shares, capped by orderbook depth.
+ *  - MARKET BUY  : the frontend's `u` = **collateral notional to spend**, not shares.
+ *                  makerAmount = takerAmount = notional × 1e18.
+ *                  Fill ≈ floor(notional / avgFillPrice) shares, capped by orderbook depth.
  *  - MARKET SELL : the frontend's `u` = **shares to sell**.
- *                  makerAmount = shares × 1e18,  takerAmount = 1 wei (any BILL proceeds).
+ *                  makerAmount = shares × 1e18,  takerAmount = 1 wei (any collateral proceeds).
  *
  *  (Bundle @ 0-3h.rd2xoxoa.js:114100, reconciled with captured UI requests
  *   and real fill observations — the `u` field is asymmetric between BUY and SELL.)
  */
-export function buildMarketBuyOrder({ marketOutcome, billAmount, feePpm, maker, nonce, expirationSec }) {
-  if (!(billAmount > 0)) throw new Error('billAmount must be > 0');
-  const notionalWei = parseUnits(String(billAmount), 18);
+export function buildMarketBuyOrder({ marketOutcome, notional, feePpm, maker, nonce, expirationSec }) {
+  if (!(notional > 0)) throw new Error('notional must be > 0');
+  const notionalWei = parseUnits(String(notional), 18);
   return {
     maker,
     feePpm: feePpm | 0,
@@ -132,12 +134,13 @@ export const EIP712_TYPES = {
   ],
 };
 
-export function eip712Domain() {
+export function eip712Domain(exchangeAddress) {
+  if (!exchangeAddress) throw new Error('eip712Domain() requires the market exchange address');
   return {
     name: 'PredictionExchange',
     version: '1',
     chainId: 612055,
-    verifyingContract: KNOWN_ADDRESSES.exchange,
+    verifyingContract: exchangeAddress,
   };
 }
 
@@ -193,8 +196,8 @@ async function postOrder(path, body, accessToken) {
       'content-type': 'application/json',
       'accept': 'application/json',
       'authorization': `Bearer ${accessToken}`,
-      'origin': 'https://prediction.crossdefi.io',
-      'referer': 'https://prediction.crossdefi.io/',
+      'origin': AUTH_ORIGIN,
+      'referer': AUTH_ORIGIN + '/',
     },
     body: JSON.stringify(body),
   });

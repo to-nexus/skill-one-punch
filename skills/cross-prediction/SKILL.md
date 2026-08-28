@@ -1,16 +1,103 @@
 ---
 name: cross-prediction
-description: Drive the CROSS Prediction market (prediction.crossdefi.io) by natural language. Lists active events, fetches event/market details, shows BILL + CROSS wallet balance, and places BILL-denominated Share buy/sell on CROSS Chain (chain id 612055) through explicit wallet execution strategies only: local signer or configured CROSSx gateway signer. Browser session reuse is not part of the distributable skill. Activates on phrases like "예측 마켓", "CROSS prediction", "BILL 매수/매도", "BTC 1분 예측", "prediction events", "cross defi prediction".
-version: 0.3.1
+description: Drive PUNCH.WIN prediction markets by natural language. Lists active events, fetches event/market details, shows wallet balances, places Share buy/sell, redeems settled positions, and claims free-to-play POINT (daily rewards + weekly season) on CROSS Chain (chain id 612055). Two live markets: usd (collateral pONEUSD, real money) and point (free to play). Execution through explicit wallet strategies only: local signer or configured CROSSx gateway signer. Activates on phrases like "예측 마켓", "PUNCH prediction", "POINT 클레임", "BTC 1분 예측", "prediction events", "punch win".
+version: 0.4.0
 license: MIT
 ---
 
-# CROSS Prediction Market
+# PUNCH.WIN Prediction Market
 
-A distributable skill for `prediction.crossdefi.io`: list events, inspect markets, read settled results, check balances, and trade outcome Shares in BILL.
+A distributable skill for `punch.win`: list events, inspect markets, read settled
+results, check balances, trade outcome Shares, redeem settled positions, and claim
+free-to-play POINT.
 
-> **v0.3.1 security posture:** read paths are public. Trading is DRY-RUN by default and can execute only through Strategy A (local viem signer) or Strategy C (configured CROSSx gateway signer). Browser-login state tooling is not shipped.
-> **Live endpoint:** BILL-denominated markets use `https://pred-bill-service-api.crossdefi.io/api/v1`; SIWE auth uses domain `https://prediction.crossdefi.io`.
+## Markets
+
+| Market | Collateral | Money | F2P endpoints | Use |
+|---|---|---|---|---|
+| `usd` | pONEUSD (Wrapped Prediction ONEUSD) | real | no | default for reads |
+| `point` | POINT | free | yes (claim, season) | default for writes |
+
+Select with `--market=usd` or `--market=point` on any command. **Without an
+explicit flag the skill picks for you:** it prefers the free POINT market while an
+F2P season is live, and falls back to USD during the gap between seasons. POINT
+markets only exist inside a season — between seasons the POINT base returns zero
+events in every status, so an unconditional POINT default would dead-end. Commands
+report the choice and the reason in `market` / `_marketNote`.
+
+Seasons run roughly weekly (SEASON 1–3 were about 7 days each, 3,000 ONE prize).
+
+The `bill` and `cross` markets are **retired**: both bases still answer HTTP but
+return zero ACTIVE events, and the web app treats them as redeem-only legacy.
+Passing `--market=bill|cross` fails with a pointer to the live markets.
+
+> **v0.4.0 security posture:** read paths are public and need no wallet. Trading
+> and claiming are DRY-RUN by default and execute through a single path: a local
+> viem signer holding `PRIVATE_KEY`. The CROSSx gateway signer was removed — it
+> signs payloads but cannot submit transactions, so it could never complete a
+> buy, redeem, or claim. Browser-login state tooling is not shipped.
+>
+> A punch.win account created with Google or Apple login lives in a CROSSx
+> embedded wallet. Its key can be exported from the CROSSx app, so such accounts
+> **can** be used — but prefer a dedicated wallet (see below).
+>
+> **Live endpoints:** `usd` → `https://pred-usd-service-api.crossdefi.io/api/v1`,
+> `point` → `https://point-service-api.punch.win/api/v1`. SIWE auth sends origin
+> `https://www.punch.win`. Contract addresses are resolved at runtime from
+> `GET /config` per market, not hardcoded.
+
+## Wallet setup (read this first)
+
+This skill signs and submits transactions itself, so it needs a private key it
+can read. **Use a dedicated wallet for it — never your main one.**
+
+1. Create a fresh wallet. Any tool that gives you the private key works.
+2. Fund it with only what you intend to risk, plus a little CROSS for gas.
+   POINT claim transactions net out to zero fees, but the node still requires a
+   dust balance to accept them.
+3. Put the key in the skill `.env`, `chmod 600` it, and never paste it into chat
+   or a command argument.
+
+If your punch.win account was created with Google or Apple login, it lives in a
+CROSSx embedded wallet. Export its private key from the CROSSx app and use that,
+or move the funds you want to trade into a dedicated wallet and use that instead.
+The second option is safer: an exported key is a full-authority key with no spend
+limit and no way to revoke it, so the less it holds, the better.
+
+## Multiple wallets
+
+Set `MNEMONIC` plus `WALLET_COUNT` instead of a bare `PRIVATE_KEY` and the skill
+derives wallets at `m/44'/60'/0'/0/N`. Useful for isolating strategies from each
+other and for keeping most funds out of the wallet that trades.
+
+| Command | Effect |
+|---|---|
+| `wallets.mjs list [--market=…]` | every derived wallet with gas and collateral balances |
+| `wallets.mjs fund --amount 0.01 [--confirm]` | spread gas from wallet 0 to the rest |
+| any command with `--wallet=<n>` | act as that wallet |
+
+One seed is easier to hold safely than N loose keys, and derivation keeps an
+operator's addresses attributable instead of anonymous.
+
+Deriving more addresses does not create more entitlement. Free-to-play rewards
+and season prizes are awarded **per operator, not per address** — the service can
+consolidate addresses that share a seed, and running many wallets to collect the
+same faucet or to enter one season repeatedly is abuse, not a strategy.
+
+## Free-to-play (POINT)
+
+POINT is claimable daily and scored in weekly seasons with a prize pool paid in ONE.
+The full loop runs from the terminal:
+
+| Command | What it does |
+|---|---|
+| `node scripts/f2p-status.mjs [--me]` | season state, prize pool, and your claimable POINT |
+| `node scripts/enter-season.mjs --confirm` | submit `enterSeason(sig)` — required once per season |
+| `node scripts/claim.mjs [--confirm]` | request a mint authorization and submit it on-chain |
+
+`claim` enters the season automatically when the service returns 409, and follows
+the referral sweep across batches. Claim transactions cost no fee, but the wallet
+needs a dust CROSS balance to pass the node's minimum-gas-price admission check.
 
 ---
 
@@ -21,9 +108,9 @@ Activate when the user asks for:
 - Active prediction events or search results
 - Detail on a specific event or market
 - Settled results and per-user PnL where wallet data is available
-- CROSS / BILL balance for a wallet
+- Gas (CROSS) and collateral (pONEUSD / POINT) balance for a wallet
 - A BUY or SELL preview or execution for YES/NO Shares
-- Redeem settled winning Shares back into BILL
+- Redeem settled winning Shares back into the market's collateral
 
 If the user asks about Gametoken / CROSS DEX trading instead, hand off to `cross-dex-trade`.
 
@@ -49,24 +136,23 @@ Env resolution priority:
 2. `$HOME/.claude/skills/cross-prediction/.env`
 3. Ask the user only for non-secret missing values needed by the requested action
 
-Never echo `PRIVATE_KEY`, `PIN`, raw `.env`, gateway auth material, or signed payload secrets into the conversation. Do not pass secrets in Bash argv; source env files or pass through process env.
+Never echo `PRIVATE_KEY`, raw `.env`, or signed payload secrets into the conversation. Do not pass secrets in Bash argv; source env files or pass through process env.
 
 For personal testing, the default `env` backend reads the key from local
 environment variables or a gitignored `.env` file. For team, hosted-agent, or
 production funds, prefer Vault Transit, KMS, or HSM-backed signing so the raw
-key is not exported to the agent runtime. Strategy C remains for configured
-CROSSx gateway signing.
+key is not exported to the agent runtime.
 
 Required for wallet-specific reads/trades:
 
 - `WALLET_ADDRESS=0x...`
 
-Optional per strategy:
+Required for execution:
 
-- local `PRIVATE_KEY` env/config for Strategy A
-- `PIN=123456`, `CROSSX_GATEWAY_BASE`, and `CROSSX_AUTH_TOKEN` or `.session/gateway.json` for Strategy C
-- `STRATEGY=A|C|auto`
-- `MAX_TRADE_BILL` default `100`
+- `PRIVATE_KEY=0x…` (64 hex) — the skill submits transactions itself
+
+Optional:
+- `MAX_TRADE_ONEUSD` default `10` (usd), `MAX_TRADE_POINT` default `1000` (point)
 
 Validation:
 
@@ -78,12 +164,14 @@ Validation:
 
 | Strategy | Signing | Prerequisite | Notes |
 |---|---|---|---|
-| A | local viem signer | `PRIVATE_KEY` | Can perform required on-chain approvals |
-| C | CROSSx gateway signer | `PIN` + configured gateway | Cannot perform on-chain approvals; fails with `APPROVAL_GAP` when allowance is missing |
+| A | local viem signer | `PRIVATE_KEY` | The only supported path. Performs on-chain approvals, redeem, enterSeason, and claim. |
 
-`STRATEGY=auto` prefers A, then C. Deprecated browser-driven strategy names are rejected with `STRATEGY_REMOVED`.
+Strategy A is the only supported path. `STRATEGY=B|C` is rejected with `STRATEGY_REMOVED`.
 
-If no strategy is usable, tell the user that trading needs either local Strategy A signer config or a configured Strategy C gateway. Do not suggest collecting web-login state from a browser.
+If no key is configured, tell the user that trading and claiming need a local
+`PRIVATE_KEY` for a dedicated wallet, and that a Google/Apple punch.win account
+cannot be used because its CROSSx embedded wallet never exposes a key. Do not
+suggest collecting web-login state from a browser.
 
 ---
 
@@ -93,11 +181,11 @@ Every mutating operation checks:
 
 1. **Chain id** — RPC must report `612055`.
 2. **Dry-run first** — `buy.mjs` and `sell.mjs` preview by default; `--live` is required for execution.
-3. **Explicit confirmation** — before any live trade above 1 BILL notional, summarize parsed intent and wait for explicit "yes / 진행".
-4. **`MAX_TRADE_BILL` cap** — aborts when worst-case notional exceeds the configured cap.
+3. **Explicit confirmation** — before any live trade on the `usd` market, summarize parsed intent and wait for explicit "yes / 진행".
+4. **Per-market trade cap** — `MAX_TRADE_ONEUSD` / `MAX_TRADE_POINT`; aborts when worst-case notional exceeds the cap. Real money and free money have separate caps on purpose.
 5. **Address mismatch abort** — runtime signer address must match `WALLET_ADDRESS`.
-6. **Approval hygiene** — Strategy A sends exact required approvals; Strategy C aborts if approvals are missing.
-7. **Redeem hygiene** — `redeem.mjs` previews by default and live redeem requires Strategy A because it sends an on-chain `CTF.redeemPositions` transaction.
+6. **Approval hygiene** — the signer sends exactly the required approvals before a trade.
+7. **Redeem hygiene** — `redeem.mjs` previews by default; live redeem sends an on-chain `CTF.redeemPositions` transaction.
 8. **No session reuse** — no browser storage, cookies, or saved login state are loaded by this skill.
 
 ---
@@ -135,8 +223,8 @@ node scripts/buy.mjs <marketId> UP 1 --live --strategy C
 
 Order semantics:
 
-- `MARKET BUY <amount>` means BILL notional to spend.
-- `LIMIT BUY <shares> --max-price <p>` means shares to acquire at no more than `p` BILL/share.
+- `MARKET BUY <amount>` means collateral notional to spend (pONEUSD or POINT).
+- `LIMIT BUY <shares> --max-price <p>` means shares to acquire at no more than `p` collateral/share.
 - `SELL` takes shares; use `--limit --min-price <p>` for limit sells.
 
 ### Redeem
@@ -158,14 +246,15 @@ node scripts/redeem.mjs <marketId> --live --strategy A
 ```text
 scripts/
 ├── _signer.mjs               common Signer interface
-├── _signer-a-viem.mjs        Strategy A: viem account from PRIVATE_KEY
-├── _signer-c-gateway.mjs     Strategy C: configured CROSSx gateway signer
-├── _strategy.mjs             auto-router: env -> A | C
+├── _signer-a-viem.mjs        viem account from PRIVATE_KEY
+├── _strategy.mjs             strategy resolution + signer construction
+├── _markets.mjs              market routing (usd / point) + season probe
+├── _f2p.mjs                  free-to-play season + claim primitives
 ├── _auth.mjs                 SIWE login using the selected signer
 ├── _order.mjs                EIP-712 order builder + sign + POST
-├── _approval.mjs             on-chain BILL.approve / CTF.setApprovalForAll
+├── _approval.mjs             on-chain collateral.approve / CTF.setApprovalForAll
 ├── _chain.mjs                viem client, addresses, ABIs, REST helpers
-├── _guard.mjs                chain-id check, MAX_TRADE_BILL cap, env validation
+├── _guard.mjs                chain-id check, per-market trade cap, env validation
 ├── buy.mjs / sell.mjs        dispatchers
 ├── redeem.mjs                settled winning Share redemption
 ├── balance.mjs               wallet + share enumeration
@@ -183,10 +272,10 @@ For every mutating operation, surface:
 - Parsed intent
 - Mode: `DRY_RUN` or `LIVE`
 - Strategy and strategy reason
-- Trade notional and `MAX_TRADE_BILL`
+- Trade notional and the per-market cap
 - Allowance/balance status
 - `txHash` or submit response when live
-- Redeemable winning Share count and redeemed BILL amount for `redeem.mjs`
+- Redeemable winning Share count and redeemed collateral amount for `redeem.mjs`
 
 Never include `PRIVATE_KEY`, `PIN`, raw `.env`, gateway auth material, or full session/config contents.
 
@@ -199,7 +288,7 @@ This folder is the unit of distribution:
 1. Copy `cross-prediction/` into `~/.claude/skills/`.
 2. Run `npm install`.
 3. Create `.env` from `.env.example`.
-4. For execution, configure Strategy A or Strategy C. Read-only commands require no signer unless the command asks for wallet-specific balances.
+4. For execution, set `PRIVATE_KEY` and `WALLET_ADDRESS`. Read-only commands need no signer unless they ask for wallet-specific balances.
 
 Read deeper references only when needed:
 

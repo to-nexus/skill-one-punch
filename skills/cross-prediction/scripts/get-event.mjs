@@ -7,6 +7,7 @@
 //   node scripts/get-event.mjs <eventId> --status REDEEMABLE   # inspect settled markets
 
 import { apiGet } from './_chain.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -24,6 +25,9 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  let venue;
+  let marketReason;
+  ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
   const { eventId, marketId, status, withOrderbook } = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(eventId ?? '')) {
     return fail('BAD_ARG', 'eventId required (UUID)');
@@ -31,7 +35,7 @@ async function main() {
 
   let event;
   try {
-    event = await apiGet(`/events/${eventId}`);
+    event = await apiGet(`/events/${eventId}`, { market: venue });
   } catch (e) {
     return fail('API_FAIL', `event fetch: ${e.message}`, { status: e.status });
   }
@@ -39,7 +43,7 @@ async function main() {
   // Always fetch markets (detail endpoint sometimes excludes some statuses).
   let markets = [];
   try {
-    const m = await apiGet(`/events/${eventId}/markets?status=${encodeURIComponent(status)}&limit=50`);
+    const m = await apiGet(`/events/${eventId}/markets?status=${encodeURIComponent(status)}&limit=50`, { market: venue });
     markets = m?.items ?? [];
   } catch (e) {
     markets = event.markets ?? [];
@@ -49,7 +53,7 @@ async function main() {
     markets = markets.filter((m) => m.id === marketId);
     if (!markets.length) {
       // single-market fallback
-      try { markets = [await apiGet(`/markets/${marketId}`)]; } catch { /* empty */ }
+      try { markets = [await apiGet(`/markets/${marketId}`, { market: venue })]; } catch { /* empty */ }
     }
   }
 

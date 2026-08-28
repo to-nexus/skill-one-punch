@@ -1,27 +1,25 @@
 #!/usr/bin/env node
-// balance — show CROSS gas + BILL balance + (optionally) CTF Share balances
-// for every active/redeemable market the wallet is involved in.
+// balance — show CROSS gas + the market's collateral balance + (optionally)
+// CTF Share positions for every active/redeemable market the wallet is in.
 //
-// All on-chain reads; no auth. Uses GET /events to discover tokenIds, then
-// CTF.balanceOfBatch to enumerate the wallet's Shares.
+// Collateral depends on the market:
+//   --market=usd    → pONEUSD (Wrapped Prediction ONEUSD), real money
+//   --market=point  → POINT, free-to-play
+//
+// All on-chain reads; no auth. Contract addresses come from GET /config at
+// runtime, so this keeps working when they rotate.
 //
 // Usage:
-//   node scripts/balance.mjs                     # CROSS + BILL only (fast)
-//   node scripts/balance.mjs --with-shares       # also fetch Share positions (slower)
+//   node scripts/balance.mjs --market=usd                    # CROSS + pONEUSD
+//   node scripts/balance.mjs --market=point --with-shares    # also Share positions
 
 import { formatUnits } from 'viem';
-import {
-  getPublicClient, apiGet,
-  KNOWN_ADDRESSES, ERC20_ABI, ERC1155_ABI,
-} from './_chain.mjs';
+import { getPublicClient, apiGet, loadMarketConfig, ERC20_ABI, ERC1155_ABI } from './_chain.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { requireWalletAddress, assertChainId, printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
-  const out = {
-    withShares: false,
-    includeRedeemable: false,
-    redeemableLimit: 20,
-  };
+  const out = { withShares: false, includeRedeemable: false, redeemableLimit: 20 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--with-shares') out.withShares = true;
@@ -32,20 +30,28 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const args = parseArgs(argv);
   let address;
+  let market;
+  let marketReason;
   try {
+    ({ market, reason: marketReason } = await marketFromArgv(argv));
     address = requireWalletAddress();
     await assertChainId();
   } catch (e) {
     return fail('GUARD_FAIL', e.message);
   }
 
+  const cfg = await loadMarketConfig(market.key);
+  const collateralDecimals = cfg.quoteToken?.decimals ?? 18;
+  const collateralSymbol = cfg.quoteToken?.symbol ?? market.collateral;
+
   const client = getPublicClient();
-  const [crossWei, billWei] = await Promise.all([
+  const [crossWei, collateralWei] = await Promise.all([
     client.getBalance({ address }),
     client.readContract({
-      address: KNOWN_ADDRESSES.bill,
+      address: cfg.quoteToken.address,
       abi: ERC20_ABI,
       functionName: 'balanceOf',
       args: [address],
@@ -56,18 +62,13 @@ async function main() {
   let positionsNote;
   if (args.withShares) {
     try {
-      // Walk ACTIVE events → their ACTIVE markets (always). Optionally also
-      // scan the most recent REDEEMABLE markets per event (there are tens of
-      // thousands of historical ones, so we cap per-event and per-run).
-      const events = (await apiGet('/events?status=ACTIVE&limit=100'))?.items ?? [];
+      const events = (await apiGet('/events?status=ACTIVE&limit=100', { market }))?.items ?? [];
       const discovered = [];
       for (const ev of events) {
         const statuses = args.includeRedeemable ? ['ACTIVE', 'REDEEMABLE'] : ['ACTIVE'];
         for (const status of statuses) {
           const lim = status === 'REDEEMABLE' ? args.redeemableLimit : 50;
-          const page = await apiGet(
-            `/events/${ev.id}/markets?status=${status}&limit=${lim}`,
-          );
+          const page = await apiGet(`/events/${ev.id}/markets?status=${status}&limit=${lim}`, { market });
           for (const m of page?.items ?? []) {
             for (const o of m.outcomes ?? []) {
               discovered.push({
@@ -88,13 +89,12 @@ async function main() {
       }
 
       if (discovered.length) {
-        // Chunk balanceOfBatch to avoid pathological call sizes.
         const CHUNK = 250;
         const balances = [];
         for (let i = 0; i < discovered.length; i += CHUNK) {
           const chunk = discovered.slice(i, i + CHUNK);
           const res = await client.readContract({
-            address: KNOWN_ADDRESSES.ctf,
+            address: cfg.ctf,
             abi: ERC1155_ABI,
             functionName: 'balanceOfBatch',
             args: [chunk.map(() => address), chunk.map((d) => BigInt(d.tokenId))],
@@ -114,10 +114,11 @@ async function main() {
             shares: formatUnits(p.sharesWei, 18),
             markPrice: p.price,
             isWinner: p.isWinner,
-            // If market is REDEEMABLE and this outcome won, shares redeem 1:1 to BILL.
-            redeemableBill: p.isWinner === true && p.payoutNumerator
-              ? formatUnits(p.sharesWei * BigInt(p.payoutNumerator), 18)
-              : undefined,
+            // A winning Share in a REDEEMABLE market redeems 1:1 into the collateral.
+            redeemableCollateral:
+              p.isWinner === true && p.payoutNumerator
+                ? formatUnits(p.sharesWei * BigInt(p.payoutNumerator), collateralDecimals)
+                : undefined,
           }));
       }
     } catch (e) {
@@ -130,8 +131,10 @@ async function main() {
   printJson({
     address,
     chainId: 612055,
-    crossBalance: formatUnits(crossWei, 18),
-    billBalance: formatUnits(billWei, 18),
+    market: market.key,
+    gasBalanceCROSS: formatUnits(crossWei, 18),
+    collateralSymbol,
+    collateralBalance: formatUnits(collateralWei, collateralDecimals),
     positions,
     _note: positionsNote,
   });
