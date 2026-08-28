@@ -9,8 +9,7 @@
 //   LIMIT  BUY : <amount> = shares to buy (requires --max-price)
 //
 // Strategies:
-//   A (default if PRIVATE_KEY set) : viem local signer, full server-API path
-//   C (default if PIN only)        : CROSSx gateway remote signer, server-API path
+//   A : viem local signer (PRIVATE_KEY), full server-API path
 // Force a strategy with --strategy A|C  or  STRATEGY=A|C env.
 //
 // Usage:
@@ -114,7 +113,7 @@ async function main() {
   });
   const fundsOk = currentBill >= requiredWei;
 
-  // Resolve which strategy WILL be used (does not require PK/PIN — just inspects env).
+  // Resolve the strategy (inspects env; does not read the key here).
   let strategyPlan;
   try { strategyPlan = resolveStrategy({ override: args.strategy }); }
   catch (e) { strategyPlan = { strategy: null, available: e.available, reason: e.message }; }
@@ -162,7 +161,7 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
   catch (e) { return fail(e.code || 'SIGNER_FAIL', e.message); }
   try {
     if (signer.address.toLowerCase() !== walletAddress.toLowerCase()) {
-      return fail('ADDRESS_MISMATCH', `${strategy === 'A' ? 'PRIVATE_KEY' : 'gateway wallet'} resolves to ${signer.address}, WALLET_ADDRESS is ${walletAddress}`);
+      return fail('ADDRESS_MISMATCH', `PRIVATE_KEY resolves to ${signer.address}, WALLET_ADDRESS is ${walletAddress}`);
     }
 
     let approvalResult = null;
@@ -171,7 +170,7 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
         approvalResult = await ensureCollateralAllowance(signer.walletClient, signer.account, ctx.requiredWei);
       } else {
         return fail('APPROVAL_GAP',
-          'Strategy C cannot send on-chain approvals from outside the website. ' +
+          '' +
           'Open punch.win once and execute a tiny BUY through the UI to set collateral allowance, then retry.',
         );
       }

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // claim — claim earned POINT (free-to-play) and mint it on-chain.
 //
-// Strategy A only. Claiming ends in a contract call, and the Strategy C gateway
-// signs payloads but cannot submit transactions, so it cannot finish the flow.
+// Claiming ends in a contract call, so it needs a local key that can submit it.
 //
 // The claim transaction itself costs nothing: fees on PunchPoint calls net out
 // to zero. The wallet still needs a dust balance of CROSS to clear the node's
@@ -53,13 +52,6 @@ async function main() {
   try {
     await assertChainId();
     signer = await buildSigner(resolveStrategy().strategy);
-    if (signer.strategy !== 'A') {
-      return fail(
-        'STRATEGY_UNSUPPORTED',
-        'POINT claim requires Strategy A (local signer). The CROSSx gateway signs payloads ' +
-          'but cannot submit on-chain transactions, so it cannot complete a claim.',
-      );
-    }
   } catch (e) {
     return fail('GUARD_FAIL', e.message);
   }

@@ -1,90 +1,76 @@
-// _strategy.mjs — pick the right execution strategy from environment.
+// _strategy.mjs — resolve the execution strategy.
 //
-//   STRATEGY=A → require PRIVATE_KEY            (local viem signer; fastest, full control)
-//   STRATEGY=C → require PIN                    (CROSSx gateway remote signer)
-//   STRATEGY=auto (default) → pick the highest-fidelity option that has its
-//                              prerequisites met, in order: A → C.
+// The skill executes through ONE path: a local viem signer holding PRIVATE_KEY.
+// This is deliberate. The full product loop — buy, sell, redeem, enterSeason,
+// claim — ends in on-chain transactions, and only a local key can submit them.
 //
-// Returning a `Plan` object keeps the dispatch site (buy.mjs / sell.mjs) tiny.
+// The CROSSx gateway signer was removed: it exposes signMessage/signTypedData
+// but cannot send transactions, so it could never finish a claim or a redeem.
+// Accounts created with Google/Apple social login live in a CROSSx embedded
+// wallet and do not expose their key, so they cannot drive this skill. Use a
+// dedicated wallet whose key you hold.
 
-function envHas(name, pattern) {
-  const v = process.env[name];
-  return typeof v === 'string' && (!pattern || pattern.test(v));
+function hasPrivateKey() {
+  const v = process.env.PRIVATE_KEY;
+  return typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v);
 }
 
-function detectAvailable() {
-  return {
-    A: envHas('PRIVATE_KEY', /^0x[0-9a-fA-F]{64}$/),
-    C: envHas('PIN', /^\d{6}$/),
-  };
-}
+const NO_KEY_MESSAGE = [
+  'No PRIVATE_KEY found. This skill signs and submits transactions locally, so it needs a key you hold.',
+  '',
+  'Set it up:',
+  '  1. Create or pick a dedicated wallet (do not reuse a high-value one).',
+  '  2. Fund it with a little CROSS for gas.',
+  '  3. Put the key in the skill .env:',
+  '       PRIVATE_KEY=0x<64 hex>',
+  '       WALLET_ADDRESS=0x<that wallet>',
+  '     chmod 600 the file. Never paste the key into chat or a command argument.',
+  '',
+  'Note: an account created on punch.win with Google or Apple login uses a CROSSx',
+  'embedded wallet that does not expose its private key, so it cannot be used here.',
+].join('\n');
 
 /**
- * Resolve the strategy.
+ * Resolve the strategy. Kept as a function (rather than inlining) so command
+ * scripts keep a single, uniform failure path.
  *
- *  override: explicit "A"|"C" from CLI flag (--strategy=…).
- *  Returns:  { strategy, available, reason }
- *  Throws:   { code: "NO_STRATEGY", message } if nothing usable.
+ *  override: explicit value from --strategy=… . Only "A" is accepted.
+ *  Returns:  { strategy: 'A', reason }
+ *  Throws:   { code } on any unusable configuration.
  */
 export function resolveStrategy({ override } = {}) {
-  const requested = (override ?? process.env.STRATEGY ?? 'auto').toUpperCase();
-  const avail = detectAvailable();
+  const requested = (override ?? process.env.STRATEGY ?? 'A').toUpperCase();
 
-  if (requested === 'B') {
-    const e = new Error('Requested strategy was removed from the distributable skill because web-login state reuse is not an allowed execution path. Use STRATEGY=A or STRATEGY=C.');
+  if (requested === 'B' || requested === 'C') {
+    const e = new Error(
+      requested === 'C'
+        ? 'Strategy C (CROSSx gateway) was removed: the gateway signs payloads but cannot submit ' +
+          'on-chain transactions, so it cannot complete buy, sell, redeem, enterSeason, or claim. ' +
+          'Use a local signer (Strategy A).'
+        : 'Strategy B (browser session reuse) is not an allowed execution path. Use a local signer (Strategy A).',
+    );
     e.code = 'STRATEGY_REMOVED';
-    e.available = avail;
     throw e;
   }
 
-  if (requested === 'A' || requested === 'C') {
-    if (!avail[requested]) {
-      const e = new Error(reasonMissing(requested));
-      e.code = 'STRATEGY_PREREQ_MISSING';
-      e.requested = requested;
-      e.available = avail;
-      throw e;
-    }
-    return { strategy: requested, available: avail, reason: 'forced by user' };
-  }
-
-  if (requested !== 'AUTO') {
-    const e = new Error(`Unknown STRATEGY=${requested}. Valid: A, C, auto.`);
+  if (requested !== 'A' && requested !== 'AUTO') {
+    const e = new Error(`Unknown STRATEGY=${requested}. The only supported strategy is A (local signer).`);
     e.code = 'BAD_STRATEGY';
     throw e;
   }
 
-  // auto: prefer A → C
-  if (avail.A) return { strategy: 'A', available: avail, reason: 'PRIVATE_KEY present (local viem signer)' };
-  if (avail.C) return { strategy: 'C', available: avail, reason: 'PIN present (gateway signer)' };
+  if (!hasPrivateKey()) {
+    const e = new Error(NO_KEY_MESSAGE);
+    e.code = 'NO_STRATEGY';
+    throw e;
+  }
 
-  const e = new Error(
-    'No usable trading strategy. Provide one of:\n' +
-    '  • local signer env/config (Strategy A — viem)\n' +
-    '  • PIN=123456 + configured CROSSx gateway (Strategy C)',
-  );
-  e.code = 'NO_STRATEGY';
-  e.available = avail;
-  throw e;
+  return { strategy: 'A', reason: 'local viem signer (PRIVATE_KEY)' };
 }
 
-function reasonMissing(strategy) {
-  switch (strategy) {
-    case 'A': return 'STRATEGY=A requires PRIVATE_KEY (0x + 64 hex) in env.';
-    case 'C': return 'STRATEGY=C requires PIN (6 digits) AND a configured gateway (CROSSX_GATEWAY_BASE + CROSSX_AUTH_TOKEN or .session/gateway.json).';
-    default:  return `unknown strategy ${strategy}`;
-  }
-}
-
-/** Build a signer for A/C. */
-export async function buildSigner(strategy) {
-  if (strategy === 'A') {
-    const { createViemSigner } = await import('./_signer-a-viem.mjs');
-    return createViemSigner(process.env.PRIVATE_KEY);
-  }
-  if (strategy === 'C') {
-    const { createGatewaySigner } = await import('./_signer-c-gateway.mjs');
-    return createGatewaySigner({ pin: process.env.PIN });
-  }
-  throw new Error(`buildSigner: unsupported strategy ${strategy}`);
+/** Build the local signer. */
+export async function buildSigner(strategy = 'A') {
+  if (strategy !== 'A') throw new Error(`buildSigner: unsupported strategy ${strategy}`);
+  const { createViemSigner } = await import('./_signer-a-viem.mjs');
+  return createViemSigner(process.env.PRIVATE_KEY);
 }

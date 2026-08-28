@@ -25,12 +25,6 @@ async function main() {
   try {
     await assertChainId();
     signer = await buildSigner(resolveStrategy().strategy);
-    if (signer.strategy !== 'A') {
-      return fail(
-        'STRATEGY_UNSUPPORTED',
-        'enterSeason requires Strategy A (local signer). The CROSSx gateway cannot submit transactions.',
-      );
-    }
   } catch (e) {
     return fail('GUARD_FAIL', e.message);
   }

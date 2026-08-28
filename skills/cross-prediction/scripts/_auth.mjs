@@ -6,8 +6,7 @@
 //        headers: must set origin+referer to the live app origin (punch.win)
 //        → { hash, message }  (SIWE message string)
 //   2. signer.signMessage(message) — EIP-191 personal_sign
-//      • Strategy A: signs locally with viem account
-//      • Strategy C: signs remotely via CROSSx gateway (PIN-gated)
+//      • signed locally with the viem account (Strategy A)
 //   3. POST /login/token
 //        body: { address, signature, domain }
 //        → { token, refresh }  ← prediction-service JWT

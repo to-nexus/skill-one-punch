@@ -31,11 +31,15 @@ The `bill` and `cross` markets are **retired**: both bases still answer HTTP but
 return zero ACTIVE events, and the web app treats them as redeem-only legacy.
 Passing `--market=bill|cross` fails with a pointer to the live markets.
 
-> **v0.4.0 security posture:** read paths are public. Trading and claiming are
-> DRY-RUN by default and execute only through Strategy A (local viem signer) or
-> Strategy C (configured CROSSx gateway signer). Strategy C signs payloads but
-> **cannot submit on-chain transactions**, so `claim`, `enter-season`, and
-> `redeem` require Strategy A. Browser-login state tooling is not shipped.
+> **v0.4.0 security posture:** read paths are public and need no wallet. Trading
+> and claiming are DRY-RUN by default and execute through a single path: a local
+> viem signer holding `PRIVATE_KEY`. The CROSSx gateway signer was removed — it
+> signs payloads but cannot submit transactions, so it could never complete a
+> buy, redeem, or claim. Browser-login state tooling is not shipped.
+>
+> A punch.win account created with Google or Apple login uses a CROSSx embedded
+> wallet that does not expose its key, so it cannot drive this skill. Use a
+> dedicated wallet funded with a little CROSS for gas.
 >
 > **Live endpoints:** `usd` → `https://pred-usd-service-api.crossdefi.io/api/v1`,
 > `point` → `https://point-service-api.punch.win/api/v1`. SIWE auth sends origin
@@ -94,23 +98,22 @@ Env resolution priority:
 2. `$HOME/.claude/skills/cross-prediction/.env`
 3. Ask the user only for non-secret missing values needed by the requested action
 
-Never echo `PRIVATE_KEY`, `PIN`, raw `.env`, gateway auth material, or signed payload secrets into the conversation. Do not pass secrets in Bash argv; source env files or pass through process env.
+Never echo `PRIVATE_KEY`, raw `.env`, or signed payload secrets into the conversation. Do not pass secrets in Bash argv; source env files or pass through process env.
 
 For personal testing, the default `env` backend reads the key from local
 environment variables or a gitignored `.env` file. For team, hosted-agent, or
 production funds, prefer Vault Transit, KMS, or HSM-backed signing so the raw
-key is not exported to the agent runtime. Strategy C remains for configured
-CROSSx gateway signing.
+key is not exported to the agent runtime.
 
 Required for wallet-specific reads/trades:
 
 - `WALLET_ADDRESS=0x...`
 
-Optional per strategy:
+Required for execution:
 
-- local `PRIVATE_KEY` env/config for Strategy A
-- `PIN=123456`, `CROSSX_GATEWAY_BASE`, and `CROSSX_AUTH_TOKEN` or `.session/gateway.json` for Strategy C
-- `STRATEGY=A|C|auto`
+- `PRIVATE_KEY=0x…` (64 hex) — the skill submits transactions itself
+
+Optional:
 - `MAX_TRADE_ONEUSD` default `10` (usd), `MAX_TRADE_POINT` default `1000` (point)
 
 Validation:
@@ -123,12 +126,14 @@ Validation:
 
 | Strategy | Signing | Prerequisite | Notes |
 |---|---|---|---|
-| A | local viem signer | `PRIVATE_KEY` | Can perform required on-chain approvals |
-| C | CROSSx gateway signer | `PIN` + configured gateway | Cannot perform on-chain approvals; fails with `APPROVAL_GAP` when allowance is missing |
+| A | local viem signer | `PRIVATE_KEY` | The only supported path. Performs on-chain approvals, redeem, enterSeason, and claim. |
 
-`STRATEGY=auto` prefers A, then C. Deprecated browser-driven strategy names are rejected with `STRATEGY_REMOVED`.
+Strategy A is the only supported path. `STRATEGY=B|C` is rejected with `STRATEGY_REMOVED`.
 
-If no strategy is usable, tell the user that trading needs either local Strategy A signer config or a configured Strategy C gateway. Do not suggest collecting web-login state from a browser.
+If no key is configured, tell the user that trading and claiming need a local
+`PRIVATE_KEY` for a dedicated wallet, and that a Google/Apple punch.win account
+cannot be used because its CROSSx embedded wallet never exposes a key. Do not
+suggest collecting web-login state from a browser.
 
 ---
 
@@ -141,8 +146,8 @@ Every mutating operation checks:
 3. **Explicit confirmation** — before any live trade on the `usd` market, summarize parsed intent and wait for explicit "yes / 진행".
 4. **Per-market trade cap** — `MAX_TRADE_ONEUSD` / `MAX_TRADE_POINT`; aborts when worst-case notional exceeds the cap. Real money and free money have separate caps on purpose.
 5. **Address mismatch abort** — runtime signer address must match `WALLET_ADDRESS`.
-6. **Approval hygiene** — Strategy A sends exact required approvals; Strategy C aborts if approvals are missing.
-7. **Redeem hygiene** — `redeem.mjs` previews by default and live redeem requires Strategy A because it sends an on-chain `CTF.redeemPositions` transaction.
+6. **Approval hygiene** — the signer sends exactly the required approvals before a trade.
+7. **Redeem hygiene** — `redeem.mjs` previews by default; live redeem sends an on-chain `CTF.redeemPositions` transaction.
 8. **No session reuse** — no browser storage, cookies, or saved login state are loaded by this skill.
 
 ---
@@ -203,9 +208,10 @@ node scripts/redeem.mjs <marketId> --live --strategy A
 ```text
 scripts/
 ├── _signer.mjs               common Signer interface
-├── _signer-a-viem.mjs        Strategy A: viem account from PRIVATE_KEY
-├── _signer-c-gateway.mjs     Strategy C: configured CROSSx gateway signer
-├── _strategy.mjs             auto-router: env -> A | C
+├── _signer-a-viem.mjs        viem account from PRIVATE_KEY
+├── _strategy.mjs             strategy resolution + signer construction
+├── _markets.mjs              market routing (usd / point) + season probe
+├── _f2p.mjs                  free-to-play season + claim primitives
 ├── _auth.mjs                 SIWE login using the selected signer
 ├── _order.mjs                EIP-712 order builder + sign + POST
 ├── _approval.mjs             on-chain collateral.approve / CTF.setApprovalForAll
@@ -244,7 +250,7 @@ This folder is the unit of distribution:
 1. Copy `cross-prediction/` into `~/.claude/skills/`.
 2. Run `npm install`.
 3. Create `.env` from `.env.example`.
-4. For execution, configure Strategy A or Strategy C. Read-only commands require no signer unless the command asks for wallet-specific balances.
+4. For execution, set `PRIVATE_KEY` and `WALLET_ADDRESS`. Read-only commands need no signer unless they ask for wallet-specific balances.
 
 Read deeper references only when needed:
 

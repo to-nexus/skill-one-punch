@@ -3,7 +3,7 @@
 //
 // DRY-RUN by default. Pass --live to send CTF.redeemPositions().
 // Strategy A is required for live execution because redeem is an on-chain
-// transaction; Strategy C signs off-chain orders only in this distributable skill.
+// transaction, so it requires the local signer.
 //
 // Usage:
 //   node scripts/redeem.mjs <marketId>

@@ -1,7 +1,7 @@
 // _signer-a-viem.mjs — Strategy A signer.
 //
 // Wraps a viem `privateKeyToAccount` so callers don't need to know whether
-// signing happens locally or via the gateway.
+// signing happens locally.
 
 import { privateKeyToAccount } from 'viem/accounts';
 import { createWalletClient, http } from 'viem';

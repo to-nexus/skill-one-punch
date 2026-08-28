@@ -2,7 +2,7 @@
 // sell — mirror of buy.mjs. DRY_RUN by default, --live to submit.
 // Default order type: MARKET. Pass --limit --min-price X for limit SELL.
 //
-// Strategies: A (PRIVATE_KEY), C (PIN + gateway recon).
+// Execution: local viem signer (PRIVATE_KEY).
 // Force with --strategy A|C or STRATEGY=… env.
 //
 // Usage:
@@ -152,7 +152,7 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
   catch (e) { return fail(e.code || 'SIGNER_FAIL', e.message); }
   try {
     if (signer.address.toLowerCase() !== walletAddress.toLowerCase()) {
-      return fail('ADDRESS_MISMATCH', `${strategy === 'A' ? 'PRIVATE_KEY' : 'gateway wallet'} resolves to ${signer.address}, WALLET_ADDRESS is ${walletAddress}`);
+      return fail('ADDRESS_MISMATCH', `PRIVATE_KEY resolves to ${signer.address}, WALLET_ADDRESS is ${walletAddress}`);
     }
 
     let approvalResult = null;
@@ -161,7 +161,7 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
         approvalResult = await ensureCtfApprovedForAll(signer.walletClient, signer.account);
       } else {
         return fail('APPROVAL_GAP',
-          'Strategy C cannot send on-chain approvals from outside the website. ' +
+          '' +
           'Open punch.win once and execute a tiny SELL through the UI to set CTF approval, then retry.',
         );
       }
