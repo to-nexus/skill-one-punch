@@ -64,6 +64,26 @@ or move the funds you want to trade into a dedicated wallet and use that instead
 The second option is safer: an exported key is a full-authority key with no spend
 limit and no way to revoke it, so the less it holds, the better.
 
+## Multiple wallets
+
+Set `MNEMONIC` plus `WALLET_COUNT` instead of a bare `PRIVATE_KEY` and the skill
+derives wallets at `m/44'/60'/0'/0/N`. Useful for isolating strategies from each
+other and for keeping most funds out of the wallet that trades.
+
+| Command | Effect |
+|---|---|
+| `wallets.mjs list [--market=…]` | every derived wallet with gas and collateral balances |
+| `wallets.mjs fund --amount 0.01 [--confirm]` | spread gas from wallet 0 to the rest |
+| any command with `--wallet=<n>` | act as that wallet |
+
+One seed is easier to hold safely than N loose keys, and derivation keeps an
+operator's addresses attributable instead of anonymous.
+
+Deriving more addresses does not create more entitlement. Free-to-play rewards
+and season prizes are awarded **per operator, not per address** — the service can
+consolidate addresses that share a seed, and running many wallets to collect the
+same faucet or to enter one season repeatedly is abuse, not a strategy.
+
 ## Free-to-play (POINT)
 
 POINT is claimable daily and scored in weekly seasons with a prize pool paid in ONE.

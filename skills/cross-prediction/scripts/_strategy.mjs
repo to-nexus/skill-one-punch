@@ -11,20 +11,26 @@
 // Prefer a dedicated wallet anyway: an exported key carries full authority with
 // no spend cap and no revocation.
 
-function hasPrivateKey() {
-  const v = process.env.PRIVATE_KEY;
-  return typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v);
+import { walletCount, accountAt, walletSelectionFromArgv } from './_wallets.mjs';
+
+function hasSigningConfig() {
+  try {
+    return walletCount() > 0;
+  } catch {
+    return false;
+  }
 }
 
 const NO_KEY_MESSAGE = [
-  'No PRIVATE_KEY found. This skill signs and submits transactions locally, so it needs a key you hold.',
+  'No signing config found. This skill signs and submits transactions locally.',
   '',
   'Set it up:',
   '  1. Create or pick a dedicated wallet (do not reuse a high-value one).',
   '  2. Fund it with a little CROSS for gas.',
-  '  3. Put the key in the skill .env:',
-  '       PRIVATE_KEY=0x<64 hex>',
-  '       WALLET_ADDRESS=0x<that wallet>',
+  '  3. Put it in the skill .env — either form works:',
+  '       PRIVATE_KEY=0x<64 hex>                 # one wallet',
+  '       MNEMONIC="word word ..."  WALLET_COUNT=5   # many, derived at m/44\'/60\'/0\'/0/N',
+  '       WALLET_ADDRESS=0x<wallet 0>',
   '     chmod 600 the file. Never paste the key into chat or a command argument.',
   '',
   'Using a Google/Apple punch.win account? Its CROSSx embedded wallet key can be',
@@ -61,7 +67,7 @@ export function resolveStrategy({ override } = {}) {
     throw e;
   }
 
-  if (!hasPrivateKey()) {
+  if (!hasSigningConfig()) {
     const e = new Error(NO_KEY_MESSAGE);
     e.code = 'NO_STRATEGY';
     throw e;
@@ -70,9 +76,13 @@ export function resolveStrategy({ override } = {}) {
   return { strategy: 'A', reason: 'local viem signer (PRIVATE_KEY)' };
 }
 
-/** Build the local signer. */
-export async function buildSigner(strategy = 'A') {
+/**
+ * Build the local signer for a wallet index.
+ * Index comes from --wallet=<n> / WALLET_INDEX, defaulting to 0.
+ */
+export async function buildSigner(strategy = 'A', { index } = {}) {
   if (strategy !== 'A') throw new Error(`buildSigner: unsupported strategy ${strategy}`);
-  const { createViemSigner } = await import('./_signer-a-viem.mjs');
-  return createViemSigner(process.env.PRIVATE_KEY);
+  const i = index ?? walletSelectionFromArgv(process.argv.slice(2)).index;
+  const { createViemSignerFromAccount } = await import('./_signer-a-viem.mjs');
+  return createViemSignerFromAccount(accountAt(i), i);
 }
