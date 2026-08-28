@@ -19,6 +19,7 @@
 //     CROSSX_AUTH_TOKEN in their own 0600 env/config file.
 
 import { existsSync, readFileSync } from 'node:fs';
+import { AUTH_ORIGIN } from './_markets.mjs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertSignerShape } from './_signer.mjs';
@@ -84,8 +85,8 @@ async function gatewayFetch(cfg, endpoint, body, { authToken } = {}) {
   const headers = {
     'content-type': 'application/json',
     'accept': 'application/json',
-    'origin': 'https://prediction.crossdefi.io',
-    'referer': 'https://prediction.crossdefi.io/',
+    'origin': AUTH_ORIGIN,
+    'referer': AUTH_ORIGIN + '/',
   };
   if (authToken) headers['authorization'] = `Bearer ${authToken}`;
   const res = await fetch(url, {

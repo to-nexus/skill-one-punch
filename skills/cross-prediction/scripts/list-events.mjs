@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // list-events — search active / closed prediction events.
 //
-// Uses the public BILL prediction REST API (no auth needed).
+// Uses the public prediction REST API for the selected market (no auth needed).
 //
 // Usage:
 //   node scripts/list-events.mjs
 //   node scripts/list-events.mjs --status ACTIVE --limit 20 --query BTC --category CRYPTO
 
 import { apiGet } from './_chain.mjs';
+import { marketFromArgv, DEFAULT_READ_MARKET } from './_markets.mjs';
 import { printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -24,6 +25,7 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  const venue = marketFromArgv(process.argv.slice(2), DEFAULT_READ_MARKET);
   const args = parseArgs(process.argv.slice(2));
   const params = new URLSearchParams();
   params.set('status', args.status);
@@ -33,7 +35,7 @@ async function main() {
 
   let data;
   try {
-    data = await apiGet(`/events?${params}`);
+    data = await apiGet(`/events?${params}`, { market: venue });
   } catch (e) {
     return fail('API_FAIL', e.message, { status: e.status, body: e.body });
   }

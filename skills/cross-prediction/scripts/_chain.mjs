@@ -1,16 +1,22 @@
 // Shared viem client, chain config, ABIs, and API helpers for cross-prediction.
 
-import { createPublicClient, createWalletClient, http, defineChain, getAddress } from 'viem';
+import { createPublicClient, createWalletClient, http, defineChain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { resolveMarket, AUTH_ORIGIN } from './_markets.mjs';
 
 export const CROSS_CHAIN_ID = 612055;
 
-export const API_BASE =
-  process.env.PREDICTION_API_BASE ?? 'https://pred-bill-service-api.crossdefi.io/api/v1';
+/**
+ * Default API base, kept for callers that have not been made market-aware yet.
+ * Prefer apiGet(path, { market }) — the base is resolved per market.
+ */
+export const API_BASE = resolveMarket().apiBase;
 
 export const crossChain = defineChain({
   id: CROSS_CHAIN_ID,
   name: 'CROSS Chain',
+  // CROSS remains the chain's native gas token. It is no longer a traded asset:
+  // the CROSS-denominated prediction market is retired.
   nativeCurrency: { name: 'CROSS', symbol: 'CROSS', decimals: 18 },
   rpcUrls: {
     default: { http: [process.env.CROSS_RPC_URL ?? 'https://mainnet.crosstoken.io:22001/'] },
@@ -20,14 +26,10 @@ export const crossChain = defineChain({
   },
 });
 
-// Canonical addresses — captured from GET /api/v1/config on 2026-04-24.
-// Runtime code should still call refreshConfig() once on startup to protect against rotation.
-// Normalized via viem getAddress to guarantee EIP-55 checksum correctness.
-export const KNOWN_ADDRESSES = {
-  bill:     getAddress('0xa6272d8053b4f5d5f7943dfbc1039b1cedebf3d4'),
-  ctf:      getAddress('0x31677b2427ded0badf00b834a5ae13c3fc999859'),
-  exchange: getAddress('0xb39faa85f5c353db5bd71f6f2a48bc7d6dc08fd9'),
-};
+// Contract addresses are resolved at runtime from GET /config, per market.
+// They are NOT hardcoded: usd and point deploy separate CTF/Exchange instances,
+// and the previously pinned BILL-market addresses are dead.
+const CONFIG_CACHE = new Map();
 
 export const ERC20_ABI = [
   { type: 'function', name: 'balanceOf', stateMutability: 'view',
@@ -81,13 +83,14 @@ export function getWalletClient(privateKey) {
 }
 
 /** Minimal JSON GET helper. Returns data.data (unwrapping the { code, message, data } envelope). */
-export async function apiGet(path, { headers = {}, timeoutMs = 10_000 } = {}) {
+export async function apiGet(path, { headers = {}, timeoutMs = 10_000, market } = {}) {
+  const base = market ? resolveMarket(market.key ?? market).apiBase : API_BASE;
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const res = await fetch(API_BASE + path, {
+    const res = await fetch(base + path, {
       signal: ctl.signal,
-      headers: { accept: 'application/json', ...headers },
+      headers: { accept: 'application/json', origin: AUTH_ORIGIN, ...headers },
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok || body?.code < 0) {
@@ -102,15 +105,30 @@ export async function apiGet(path, { headers = {}, timeoutMs = 10_000 } = {}) {
   }
 }
 
-/** Fetch /config and verify the hardcoded addresses still match. Returns the config.data object. */
-export async function refreshConfig() {
-  const cfg = await apiGet('/config');
-  const warn = [];
-  if (cfg?.quoteToken?.address?.toLowerCase() !== KNOWN_ADDRESSES.bill.toLowerCase())
-    warn.push(`BILL address changed: got ${cfg.quoteToken.address}, expected ${KNOWN_ADDRESSES.bill}`);
-  if (cfg?.ctfContract?.address?.toLowerCase() !== KNOWN_ADDRESSES.ctf.toLowerCase())
-    warn.push(`CTF address changed: got ${cfg.ctfContract.address}, expected ${KNOWN_ADDRESSES.ctf}`);
-  if (cfg?.exchangeContract?.address?.toLowerCase() !== KNOWN_ADDRESSES.exchange.toLowerCase())
-    warn.push(`Exchange address changed: got ${cfg.exchangeContract.address}, expected ${KNOWN_ADDRESSES.exchange}`);
-  return { config: cfg, warn };
+/**
+ * Fetch GET /config for a market and return its live contract addresses.
+ * Cached per market for the process lifetime.
+ *
+ *   { quoteToken: { address, symbol, decimals }, ctf, exchange, batchRedeemer,
+ *     negRiskAdapter, referralVault, shareDecimals }
+ */
+export async function loadMarketConfig(marketKey) {
+  const m = resolveMarket(marketKey);
+  if (CONFIG_CACHE.has(m.key)) return CONFIG_CACHE.get(m.key);
+  const cfg = await apiGet('/config', { market: m });
+  const resolved = {
+    market: m.key,
+    quoteToken: cfg?.quoteToken,
+    ctf: cfg?.ctfContract?.address,
+    exchange: cfg?.exchangeContract?.address,
+    batchRedeemer: cfg?.batchRedeemerContract?.address,
+    negRiskAdapter: cfg?.negRiskAdapterContract?.address,
+    referralVault: cfg?.referralVaultContract?.address,
+    shareDecimals: cfg?.shareDecimals ?? 2,
+  };
+  if (!resolved.quoteToken?.address || !resolved.ctf || !resolved.exchange) {
+    throw new Error(`GET /config for market "${m.key}" is missing required contract addresses`);
+  }
+  CONFIG_CACHE.set(m.key, resolved);
+  return resolved;
 }

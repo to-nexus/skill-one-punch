@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// redeem — redeem settled winning CTF Shares back into BILL.
+// redeem — redeem settled winning CTF Shares back into the market's collateral.
 //
 // DRY-RUN by default. Pass --live to send CTF.redeemPositions().
 // Strategy A is required for live execution because redeem is an on-chain
@@ -12,8 +12,9 @@
 
 import { formatUnits, zeroHash } from 'viem';
 import {
-  apiGet, getPublicClient, KNOWN_ADDRESSES, ERC1155_ABI, CTF_REDEEM_ABI,
+  apiGet, getPublicClient, loadMarketConfig, ERC1155_ABI, CTF_REDEEM_ABI,
 } from './_chain.mjs';
+import { marketFromArgv, DEFAULT_WRITE_MARKET, DEFAULT_READ_MARKET } from './_markets.mjs';
 import {
   assertChainId, requireWalletAddress, printJson, fail,
 } from './_guard.mjs';
@@ -40,6 +41,8 @@ function indexSetFor(outcomeIndex) {
 }
 
 async function main() {
+  let venue;
+  let cfg;
   const args = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(args.marketId ?? '')) {
     return fail('BAD_ARG', 'marketId must be a UUID');
@@ -49,13 +52,16 @@ async function main() {
   try {
     walletAddress = requireWalletAddress();
     await assertChainId();
+    venue = marketFromArgv(process.argv.slice(2), DEFAULT_WRITE_MARKET);
+    cfg = await loadMarketConfig(venue.key);
+
   } catch (e) {
     return fail('GUARD_FAIL', e.message);
   }
 
   let market;
   try {
-    market = await apiGet(`/markets/${args.marketId}`);
+    market = await apiGet(`/markets/${args.marketId}`, { market: venue });
   } catch (e) {
     return fail('API_FAIL', `market fetch: ${e.message}`, { status: e.status });
   }
@@ -76,7 +82,7 @@ async function main() {
   let shareWei;
   try {
     shareWei = await pub.readContract({
-      address: KNOWN_ADDRESSES.ctf,
+      address: cfg.ctf,
       abi: ERC1155_ABI,
       functionName: 'balanceOf',
       args: [walletAddress, BigInt(winner.tokenId)],
@@ -91,7 +97,7 @@ async function main() {
     marketId: args.marketId,
     marketTitle: `${market.event?.title ?? ''} — ${market.title}`,
     conditionId: market.conditionId,
-    collateralToken: KNOWN_ADDRESSES.bill,
+    collateralToken: cfg.quoteToken.address,
     parentCollectionId: zeroHash,
     winningOutcome: {
       outcomeIndex: winner.outcomeIndex,
@@ -132,7 +138,7 @@ async function main() {
     }
 
     const callArgs = [
-      KNOWN_ADDRESSES.bill,
+      cfg.quoteToken.address,
       zeroHash,
       market.conditionId,
       [indexSet],
@@ -142,7 +148,7 @@ async function main() {
     try {
       simulation = await pub.simulateContract({
         account: signer.account,
-        address: KNOWN_ADDRESSES.ctf,
+        address: cfg.ctf,
         abi: CTF_REDEEM_ABI,
         functionName: 'redeemPositions',
         args: callArgs,

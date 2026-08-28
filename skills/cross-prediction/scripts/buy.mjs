@@ -5,7 +5,7 @@
 // DRY-RUN by default. Pass --live to auth + sign + submit.
 //
 // ⚠ SEMANTICS (asymmetric, matches the Exchange's native u-param encoding):
-//   MARKET BUY : <amount> = BILL notional to spend
+//   MARKET BUY : <amount> = collateral notional to spend (pONEUSD or POINT)
 //   LIMIT  BUY : <amount> = shares to buy (requires --max-price)
 //
 // Strategies:
@@ -14,14 +14,15 @@
 // Force a strategy with --strategy A|C  or  STRATEGY=A|C env.
 //
 // Usage:
-//   node scripts/buy.mjs <marketId> <UP|DOWN|YES|NO|0|1> <billAmount>
+//   node scripts/buy.mjs <marketId> <UP|DOWN|YES|NO|0|1> <notional>
 //   node scripts/buy.mjs <marketId> <outcome> <shares> --limit --max-price 0.55
 //   (append --live to execute)
 
 import { formatUnits, parseUnits } from 'viem';
 import {
-  apiGet, getPublicClient, KNOWN_ADDRESSES, ERC20_ABI,
+  apiGet, getPublicClient, loadMarketConfig, ERC20_ABI,
 } from './_chain.mjs';
+import { marketFromArgv, DEFAULT_WRITE_MARKET, DEFAULT_READ_MARKET } from './_markets.mjs';
 import {
   assertChainId, capTrade, requireWalletAddress, printJson, fail,
 } from './_guard.mjs';
@@ -30,7 +31,7 @@ import {
   submitLimitOrder, submitMarketOrder, readMinValidNonce,
 } from './_order.mjs';
 import { login } from './_auth.mjs';
-import { ensureBillAllowance } from './_approval.mjs';
+import { ensureCollateralAllowance } from './_approval.mjs';
 import { resolveStrategy, buildSigner } from './_strategy.mjs';
 
 const NAME_TO_INDEX = { UP: 0, YES: 0, LONG: 0, DOWN: 1, NO: 1, SHORT: 1, '0': 0, '1': 1 };
@@ -56,6 +57,8 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  let venue;
+  let cfg;
   const args = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(args.marketId ?? ''))
     return fail('BAD_ARG', 'marketId must be a UUID');
@@ -63,18 +66,21 @@ async function main() {
   if (outcomeIndex !== 0 && outcomeIndex !== 1)
     return fail('BAD_ARG', `outcome must be one of: 0, 1, UP, DOWN, YES, NO, LONG, SHORT (got ${args.outcome || 'empty'})`);
   if (!Number.isFinite(args.amount) || args.amount <= 0)
-    return fail('BAD_ARG', args.limit ? 'shares must be positive' : 'billAmount must be positive');
+    return fail('BAD_ARG', args.limit ? 'shares must be positive' : 'notional must be positive');
   if (args.limit && (args.maxPrice == null || !(args.maxPrice > 0 && args.maxPrice < 1)))
-    return fail('BAD_ARG', '--limit requires --max-price in (0, 1) BILL/share');
+    return fail('BAD_ARG', '--limit requires --max-price in (0, 1) collateral/share');
 
   let walletAddress;
   try {
     walletAddress = requireWalletAddress();
     await assertChainId();
+    venue = marketFromArgv(process.argv.slice(2), DEFAULT_WRITE_MARKET);
+    cfg = await loadMarketConfig(venue.key);
+
   } catch (e) { return fail('GUARD_FAIL', e.message); }
 
   let market;
-  try { market = await apiGet(`/markets/${args.marketId}`); }
+  try { market = await apiGet(`/markets/${args.marketId}`, { market: venue }); }
   catch (e) { return fail('API_FAIL', `market fetch: ${e.message}`); }
 
   if (market.status !== 'ACTIVE' || !market.tradable) {
@@ -86,7 +92,7 @@ async function main() {
   if (!outcome || !opposite) return fail('BAD_MARKET', 'outcomes missing expected indices');
 
   let orderbookSnap;
-  try { orderbookSnap = await apiGet(`/markets/${args.marketId}/orderbook?outcomeIndex=${outcomeIndex}`); } catch {}
+  try { orderbookSnap = await apiGet(`/markets/${args.marketId}/orderbook?outcomeIndex=${outcomeIndex}`, { market: venue }); } catch {}
   const bestAsk = orderbookSnap?.bestAsk ? Number(orderbookSnap.bestAsk) : null;
 
   // Cap math differs per order type.
@@ -98,12 +104,12 @@ async function main() {
 
   const pub = getPublicClient();
   const currentAllowance = await pub.readContract({
-    address: KNOWN_ADDRESSES.bill, abi: ERC20_ABI, functionName: 'allowance',
-    args: [walletAddress, KNOWN_ADDRESSES.exchange],
+    address: cfg.quoteToken.address, abi: ERC20_ABI, functionName: 'allowance',
+    args: [walletAddress, cfg.exchange],
   });
   const allowanceOk = currentAllowance >= requiredWei;
   const currentBill = await pub.readContract({
-    address: KNOWN_ADDRESSES.bill, abi: ERC20_ABI, functionName: 'balanceOf', args: [walletAddress],
+    address: cfg.quoteToken.address, abi: ERC20_ABI, functionName: 'balanceOf', args: [walletAddress],
   });
   const fundsOk = currentBill >= requiredWei;
 
@@ -133,7 +139,7 @@ async function main() {
       ok: allowanceOk,
     },
     balance: { currentBill: formatUnits(currentBill, 18), fundsOk },
-    maxTradeBillCap: Number(process.env.MAX_TRADE_BILL ?? '100'),
+    maxTradeCap: Number(process.env[venue.key === 'usd' ? 'MAX_TRADE_ONEUSD' : 'MAX_TRADE_POINT'] ?? (venue.key === 'usd' ? '10' : '1000')),
   };
 
   if (!args.live) {
@@ -142,7 +148,7 @@ async function main() {
 
   // ──────── LIVE ────────
   if (!strategyPlan.strategy) return fail('NO_STRATEGY', strategyPlan.reason ?? 'no usable strategy');
-  if (!fundsOk) return fail('INSUFFICIENT_FUNDS', `wallet has ${plan.balance.currentBill} BILL, need ${plan.allowance.requiredBill}`);
+  if (!fundsOk) return fail('INSUFFICIENT_FUNDS', `wallet has ${plan.balance.currentBill} ${venue.collateral}, need ${plan.allowance.requiredBill}`);
 
   return placeViaApi(plan, args, walletAddress, strategyPlan.strategy, {
     market, outcome, opposite, allowanceOk, requiredWei,
@@ -161,11 +167,11 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
     let approvalResult = null;
     if (!ctx.allowanceOk) {
       if (strategy === 'A') {
-        approvalResult = await ensureBillAllowance(signer.walletClient, signer.account, ctx.requiredWei);
+        approvalResult = await ensureCollateralAllowance(signer.walletClient, signer.account, ctx.requiredWei);
       } else {
         return fail('APPROVAL_GAP',
           'Strategy C cannot send on-chain approvals from outside the website. ' +
-          'Open prediction.crossdefi.io once and execute a tiny BUY through the UI to set BILL allowance, then retry.',
+          'Open punch.win once and execute a tiny BUY through the UI to set collateral allowance, then retry.',
         );
       }
     }
@@ -181,7 +187,7 @@ async function placeViaApi(plan, args, walletAddress, strategy, ctx) {
         })
       : buildMarketBuyOrder({
           marketOutcome: { tokenId: ctx.outcome.tokenId, oppositeTokenId: ctx.opposite.tokenId },
-          billAmount: args.amount,
+          notional: args.amount,
           feePpm: ctx.market.feePpm, maker: signer.address, nonce,
         });
     const signature = await signOrder(signer, order);

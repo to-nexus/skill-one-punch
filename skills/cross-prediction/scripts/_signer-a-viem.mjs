@@ -18,7 +18,7 @@ export function createViemSigner(privateKey) {
   return assertSignerShape({
     strategy: 'A',
     address: account.address,
-    account,                 // expose for on-chain writes (BILL.approve, CTF.setApprovalForAll)
+    account,                 // expose for on-chain writes (collateral.approve, CTF.setApprovalForAll)
     walletClient,
     async signMessage(message) {
       return account.signMessage({ message });

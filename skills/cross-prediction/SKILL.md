@@ -1,16 +1,54 @@
 ---
 name: cross-prediction
-description: Drive the CROSS Prediction market (prediction.crossdefi.io) by natural language. Lists active events, fetches event/market details, shows BILL + CROSS wallet balance, and places BILL-denominated Share buy/sell on CROSS Chain (chain id 612055) through explicit wallet execution strategies only: local signer or configured CROSSx gateway signer. Browser session reuse is not part of the distributable skill. Activates on phrases like "예측 마켓", "CROSS prediction", "BILL 매수/매도", "BTC 1분 예측", "prediction events", "cross defi prediction".
-version: 0.3.1
+description: Drive PUNCH.WIN prediction markets by natural language. Lists active events, fetches event/market details, shows wallet balances, places Share buy/sell, redeems settled positions, and claims free-to-play POINT (daily rewards + weekly season) on CROSS Chain (chain id 612055). Two live markets: usd (collateral pONEUSD, real money) and point (free to play). Execution through explicit wallet strategies only: local signer or configured CROSSx gateway signer. Activates on phrases like "예측 마켓", "PUNCH prediction", "POINT 클레임", "BTC 1분 예측", "prediction events", "punch win".
+version: 0.4.0
 license: MIT
 ---
 
-# CROSS Prediction Market
+# PUNCH.WIN Prediction Market
 
-A distributable skill for `prediction.crossdefi.io`: list events, inspect markets, read settled results, check balances, and trade outcome Shares in BILL.
+A distributable skill for `punch.win`: list events, inspect markets, read settled
+results, check balances, trade outcome Shares, redeem settled positions, and claim
+free-to-play POINT.
 
-> **v0.3.1 security posture:** read paths are public. Trading is DRY-RUN by default and can execute only through Strategy A (local viem signer) or Strategy C (configured CROSSx gateway signer). Browser-login state tooling is not shipped.
-> **Live endpoint:** BILL-denominated markets use `https://pred-bill-service-api.crossdefi.io/api/v1`; SIWE auth uses domain `https://prediction.crossdefi.io`.
+## Markets
+
+| Market | Collateral | Money | F2P endpoints | Use |
+|---|---|---|---|---|
+| `usd` | pONEUSD (Wrapped Prediction ONEUSD) | real | no | default for reads |
+| `point` | POINT | free | yes (claim, season) | default for writes |
+
+Select with `--market=usd` or `--market=point` on any command.
+
+The `bill` and `cross` markets are **retired**: both bases still answer HTTP but
+return zero ACTIVE events, and the web app treats them as redeem-only legacy.
+Passing `--market=bill|cross` fails with a pointer to the live markets.
+
+> **v0.4.0 security posture:** read paths are public. Trading and claiming are
+> DRY-RUN by default and execute only through Strategy A (local viem signer) or
+> Strategy C (configured CROSSx gateway signer). Strategy C signs payloads but
+> **cannot submit on-chain transactions**, so `claim`, `enter-season`, and
+> `redeem` require Strategy A. Browser-login state tooling is not shipped.
+>
+> **Live endpoints:** `usd` → `https://pred-usd-service-api.crossdefi.io/api/v1`,
+> `point` → `https://point-service-api.punch.win/api/v1`. SIWE auth sends origin
+> `https://www.punch.win`. Contract addresses are resolved at runtime from
+> `GET /config` per market, not hardcoded.
+
+## Free-to-play (POINT)
+
+POINT is claimable daily and scored in weekly seasons with a prize pool paid in ONE.
+The full loop runs from the terminal:
+
+| Command | What it does |
+|---|---|
+| `node scripts/f2p-status.mjs [--me]` | season state, prize pool, and your claimable POINT |
+| `node scripts/enter-season.mjs --confirm` | submit `enterSeason(sig)` — required once per season |
+| `node scripts/claim.mjs [--confirm]` | request a mint authorization and submit it on-chain |
+
+`claim` enters the season automatically when the service returns 409, and follows
+the referral sweep across batches. Claim transactions cost no fee, but the wallet
+needs a dust CROSS balance to pass the node's minimum-gas-price admission check.
 
 ---
 
@@ -21,9 +59,9 @@ Activate when the user asks for:
 - Active prediction events or search results
 - Detail on a specific event or market
 - Settled results and per-user PnL where wallet data is available
-- CROSS / BILL balance for a wallet
+- Gas (CROSS) and collateral (pONEUSD / POINT) balance for a wallet
 - A BUY or SELL preview or execution for YES/NO Shares
-- Redeem settled winning Shares back into BILL
+- Redeem settled winning Shares back into the market's collateral
 
 If the user asks about Gametoken / CROSS DEX trading instead, hand off to `cross-dex-trade`.
 
@@ -66,7 +104,7 @@ Optional per strategy:
 - local `PRIVATE_KEY` env/config for Strategy A
 - `PIN=123456`, `CROSSX_GATEWAY_BASE`, and `CROSSX_AUTH_TOKEN` or `.session/gateway.json` for Strategy C
 - `STRATEGY=A|C|auto`
-- `MAX_TRADE_BILL` default `100`
+- `MAX_TRADE_ONEUSD` default `10` (usd), `MAX_TRADE_POINT` default `1000` (point)
 
 Validation:
 
@@ -93,8 +131,8 @@ Every mutating operation checks:
 
 1. **Chain id** — RPC must report `612055`.
 2. **Dry-run first** — `buy.mjs` and `sell.mjs` preview by default; `--live` is required for execution.
-3. **Explicit confirmation** — before any live trade above 1 BILL notional, summarize parsed intent and wait for explicit "yes / 진행".
-4. **`MAX_TRADE_BILL` cap** — aborts when worst-case notional exceeds the configured cap.
+3. **Explicit confirmation** — before any live trade on the `usd` market, summarize parsed intent and wait for explicit "yes / 진행".
+4. **Per-market trade cap** — `MAX_TRADE_ONEUSD` / `MAX_TRADE_POINT`; aborts when worst-case notional exceeds the cap. Real money and free money have separate caps on purpose.
 5. **Address mismatch abort** — runtime signer address must match `WALLET_ADDRESS`.
 6. **Approval hygiene** — Strategy A sends exact required approvals; Strategy C aborts if approvals are missing.
 7. **Redeem hygiene** — `redeem.mjs` previews by default and live redeem requires Strategy A because it sends an on-chain `CTF.redeemPositions` transaction.
@@ -135,8 +173,8 @@ node scripts/buy.mjs <marketId> UP 1 --live --strategy C
 
 Order semantics:
 
-- `MARKET BUY <amount>` means BILL notional to spend.
-- `LIMIT BUY <shares> --max-price <p>` means shares to acquire at no more than `p` BILL/share.
+- `MARKET BUY <amount>` means collateral notional to spend (pONEUSD or POINT).
+- `LIMIT BUY <shares> --max-price <p>` means shares to acquire at no more than `p` collateral/share.
 - `SELL` takes shares; use `--limit --min-price <p>` for limit sells.
 
 ### Redeem
@@ -163,9 +201,9 @@ scripts/
 ├── _strategy.mjs             auto-router: env -> A | C
 ├── _auth.mjs                 SIWE login using the selected signer
 ├── _order.mjs                EIP-712 order builder + sign + POST
-├── _approval.mjs             on-chain BILL.approve / CTF.setApprovalForAll
+├── _approval.mjs             on-chain collateral.approve / CTF.setApprovalForAll
 ├── _chain.mjs                viem client, addresses, ABIs, REST helpers
-├── _guard.mjs                chain-id check, MAX_TRADE_BILL cap, env validation
+├── _guard.mjs                chain-id check, per-market trade cap, env validation
 ├── buy.mjs / sell.mjs        dispatchers
 ├── redeem.mjs                settled winning Share redemption
 ├── balance.mjs               wallet + share enumeration
@@ -183,10 +221,10 @@ For every mutating operation, surface:
 - Parsed intent
 - Mode: `DRY_RUN` or `LIVE`
 - Strategy and strategy reason
-- Trade notional and `MAX_TRADE_BILL`
+- Trade notional and the per-market cap
 - Allowance/balance status
 - `txHash` or submit response when live
-- Redeemable winning Share count and redeemed BILL amount for `redeem.mjs`
+- Redeemable winning Share count and redeemed collateral amount for `redeem.mjs`
 
 Never include `PRIVATE_KEY`, `PIN`, raw `.env`, gateway auth material, or full session/config contents.
 
