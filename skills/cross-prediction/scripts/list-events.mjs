@@ -8,7 +8,7 @@
 //   node scripts/list-events.mjs --status ACTIVE --limit 20 --query BTC --category CRYPTO
 
 import { apiGet } from './_chain.mjs';
-import { marketFromArgv, DEFAULT_READ_MARKET } from './_markets.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -25,7 +25,9 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const venue = marketFromArgv(process.argv.slice(2), DEFAULT_READ_MARKET);
+  let venue;
+  let marketReason;
+  ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
   const args = parseArgs(process.argv.slice(2));
   const params = new URLSearchParams();
   params.set('status', args.status);
@@ -74,6 +76,8 @@ async function main() {
   }));
 
   printJson({
+    market: venue.key,
+    _marketNote: marketReason ?? undefined,
     count: trimmed.length,
     totalMatched: items.length,
     filters: args,

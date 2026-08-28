@@ -18,7 +18,7 @@ import { formatUnits } from 'viem';
 import {
   apiGet, getPublicClient, loadMarketConfig, ERC1155_ABI,
 } from './_chain.mjs';
-import { marketFromArgv, DEFAULT_WRITE_MARKET, DEFAULT_READ_MARKET } from './_markets.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -37,7 +37,7 @@ function parseArgs(argv) {
 async function main() {
   let venue;
   let cfg;
-  venue = marketFromArgv(process.argv.slice(2), DEFAULT_READ_MARKET);
+  ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
   cfg = await loadMarketConfig(venue.key);
   const { eventId, onlyMine, limit } = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(eventId ?? '')) {
@@ -113,6 +113,8 @@ async function main() {
   });
 
   printJson({
+    market: venue.key,
+    _marketNote: marketReason ?? undefined,
     eventId,
     onlyMine,
     walletAddress: onlyMine ? walletAddress : undefined,

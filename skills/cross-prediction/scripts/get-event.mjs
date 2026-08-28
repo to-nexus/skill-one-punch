@@ -7,7 +7,7 @@
 //   node scripts/get-event.mjs <eventId> --status REDEEMABLE   # inspect settled markets
 
 import { apiGet } from './_chain.mjs';
-import { marketFromArgv, DEFAULT_READ_MARKET } from './_markets.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -25,7 +25,9 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const venue = marketFromArgv(process.argv.slice(2), DEFAULT_READ_MARKET);
+  let venue;
+  let marketReason;
+  ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
   const { eventId, marketId, status, withOrderbook } = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(eventId ?? '')) {
     return fail('BAD_ARG', 'eventId required (UUID)');

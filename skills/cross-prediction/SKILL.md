@@ -18,7 +18,14 @@ free-to-play POINT.
 | `usd` | pONEUSD (Wrapped Prediction ONEUSD) | real | no | default for reads |
 | `point` | POINT | free | yes (claim, season) | default for writes |
 
-Select with `--market=usd` or `--market=point` on any command.
+Select with `--market=usd` or `--market=point` on any command. **Without an
+explicit flag the skill picks for you:** it prefers the free POINT market while an
+F2P season is live, and falls back to USD during the gap between seasons. POINT
+markets only exist inside a season — between seasons the POINT base returns zero
+events in every status, so an unconditional POINT default would dead-end. Commands
+report the choice and the reason in `market` / `_marketNote`.
+
+Seasons run roughly weekly (SEASON 1–3 were about 7 days each, 3,000 ONE prize).
 
 The `bill` and `cross` markets are **retired**: both bases still answer HTTP but
 return zero ACTIVE events, and the web app treats them as redeem-only legacy.

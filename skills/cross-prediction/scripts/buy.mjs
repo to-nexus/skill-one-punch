@@ -22,7 +22,7 @@ import { formatUnits, parseUnits } from 'viem';
 import {
   apiGet, getPublicClient, loadMarketConfig, ERC20_ABI,
 } from './_chain.mjs';
-import { marketFromArgv, DEFAULT_WRITE_MARKET, DEFAULT_READ_MARKET } from './_markets.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import {
   assertChainId, capTrade, requireWalletAddress, printJson, fail,
 } from './_guard.mjs';
@@ -59,6 +59,7 @@ function parseArgs(argv) {
 async function main() {
   let venue;
   let cfg;
+  let marketReason;
   const args = parseArgs(process.argv.slice(2));
   if (!/^[0-9a-f-]{36}$/.test(args.marketId ?? ''))
     return fail('BAD_ARG', 'marketId must be a UUID');
@@ -74,7 +75,7 @@ async function main() {
   try {
     walletAddress = requireWalletAddress();
     await assertChainId();
-    venue = marketFromArgv(process.argv.slice(2), DEFAULT_WRITE_MARKET);
+    ({ market: venue, reason: marketReason } = await marketFromArgv(process.argv.slice(2)));
     cfg = await loadMarketConfig(venue.key);
 
   } catch (e) { return fail('GUARD_FAIL', e.message); }

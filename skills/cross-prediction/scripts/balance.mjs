@@ -15,7 +15,7 @@
 
 import { formatUnits } from 'viem';
 import { getPublicClient, apiGet, loadMarketConfig, ERC20_ABI, ERC1155_ABI } from './_chain.mjs';
-import { marketFromArgv, DEFAULT_READ_MARKET } from './_markets.mjs';
+import { marketFromArgv } from './_markets.mjs';
 import { requireWalletAddress, assertChainId, printJson, fail } from './_guard.mjs';
 
 function parseArgs(argv) {
@@ -34,8 +34,9 @@ async function main() {
   const args = parseArgs(argv);
   let address;
   let market;
+  let marketReason;
   try {
-    market = marketFromArgv(argv, DEFAULT_READ_MARKET);
+    ({ market, reason: marketReason } = await marketFromArgv(argv));
     address = requireWalletAddress();
     await assertChainId();
   } catch (e) {
