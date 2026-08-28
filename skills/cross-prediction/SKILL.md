@@ -37,14 +37,32 @@ Passing `--market=bill|cross` fails with a pointer to the live markets.
 > signs payloads but cannot submit transactions, so it could never complete a
 > buy, redeem, or claim. Browser-login state tooling is not shipped.
 >
-> A punch.win account created with Google or Apple login uses a CROSSx embedded
-> wallet that does not expose its key, so it cannot drive this skill. Use a
-> dedicated wallet funded with a little CROSS for gas.
+> A punch.win account created with Google or Apple login lives in a CROSSx
+> embedded wallet. Its key can be exported from the CROSSx app, so such accounts
+> **can** be used — but prefer a dedicated wallet (see below).
 >
 > **Live endpoints:** `usd` → `https://pred-usd-service-api.crossdefi.io/api/v1`,
 > `point` → `https://point-service-api.punch.win/api/v1`. SIWE auth sends origin
 > `https://www.punch.win`. Contract addresses are resolved at runtime from
 > `GET /config` per market, not hardcoded.
+
+## Wallet setup (read this first)
+
+This skill signs and submits transactions itself, so it needs a private key it
+can read. **Use a dedicated wallet for it — never your main one.**
+
+1. Create a fresh wallet. Any tool that gives you the private key works.
+2. Fund it with only what you intend to risk, plus a little CROSS for gas.
+   POINT claim transactions net out to zero fees, but the node still requires a
+   dust balance to accept them.
+3. Put the key in the skill `.env`, `chmod 600` it, and never paste it into chat
+   or a command argument.
+
+If your punch.win account was created with Google or Apple login, it lives in a
+CROSSx embedded wallet. Export its private key from the CROSSx app and use that,
+or move the funds you want to trade into a dedicated wallet and use that instead.
+The second option is safer: an exported key is a full-authority key with no spend
+limit and no way to revoke it, so the less it holds, the better.
 
 ## Free-to-play (POINT)
 

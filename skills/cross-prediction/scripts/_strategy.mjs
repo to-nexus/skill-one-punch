@@ -7,8 +7,9 @@
 // The CROSSx gateway signer was removed: it exposes signMessage/signTypedData
 // but cannot send transactions, so it could never finish a claim or a redeem.
 // Accounts created with Google/Apple social login live in a CROSSx embedded
-// wallet and do not expose their key, so they cannot drive this skill. Use a
-// dedicated wallet whose key you hold.
+// wallet whose key can be exported from the CROSSx app, so they can be used.
+// Prefer a dedicated wallet anyway: an exported key carries full authority with
+// no spend cap and no revocation.
 
 function hasPrivateKey() {
   const v = process.env.PRIVATE_KEY;
@@ -26,8 +27,9 @@ const NO_KEY_MESSAGE = [
   '       WALLET_ADDRESS=0x<that wallet>',
   '     chmod 600 the file. Never paste the key into chat or a command argument.',
   '',
-  'Note: an account created on punch.win with Google or Apple login uses a CROSSx',
-  'embedded wallet that does not expose its private key, so it cannot be used here.',
+  'Using a Google/Apple punch.win account? Its CROSSx embedded wallet key can be',
+  'exported from the CROSSx app. Prefer moving only what you need into a dedicated',
+  'wallet instead — an exported key has full authority and cannot be revoked.',
 ].join('\n');
 
 /**

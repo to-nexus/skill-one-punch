@@ -123,3 +123,68 @@ export async function requestClaim(token, referralCursor) {
 export function verifyingContractOf(auth) {
   return auth?.verifyingContract ?? auth?.typedData?.domain?.verifyingContract;
 }
+
+/** Selector of the relayed overload enterSeason(address,bytes). */
+const RELAYED_ENTER_SELECTOR = '38c5cbc1';
+
+const relayedSupport = new Map();
+
+/**
+ * Does the deployed contract expose enterSeason(address,bytes)?
+ *
+ * The proxy holds no logic, so the selector is probed on the implementation
+ * behind the EIP-1967 slot. Result is cached per contract address.
+ */
+export async function supportsRelayedEntry(publicClient, contractAddress) {
+  const key = String(contractAddress).toLowerCase();
+  if (relayedSupport.has(key)) return relayedSupport.get(key);
+  let ok = false;
+  try {
+    let code = await publicClient.getBytecode({ address: contractAddress });
+    // A proxy is a few hundred bytes; follow it to the implementation.
+    if (code && code.length < 1000) {
+      const slot = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+      const raw = await publicClient.getStorageAt({ address: contractAddress, slot });
+      const impl = raw && '0x' + raw.slice(-40);
+      if (impl && /^0x[0-9a-fA-F]{40}$/.test(impl) && BigInt(impl) !== 0n) {
+        code = await publicClient.getBytecode({ address: impl });
+      }
+    }
+    ok = Boolean(code && code.includes(RELAYED_ENTER_SELECTOR));
+  } catch {
+    ok = false;
+  }
+  relayedSupport.set(key, ok);
+  return ok;
+}
+
+/**
+ * Build the enterSeason call for the deployed contract.
+ *
+ * Returns { functionName, args, relayable }. When the relayed overload exists,
+ * `relayable` is true and any funded address may submit the transaction; the
+ * user address is bound into the call rather than inferred from msg.sender.
+ * Otherwise the legacy one-argument form is used and the user's own wallet must
+ * be the sender.
+ */
+export async function enterSeasonCall(publicClient, contractAddress, { user, signature }) {
+  const relayable = await supportsRelayedEntry(publicClient, contractAddress);
+  // Separate single-entry ABIs: viem rejects an ambiguous overload set.
+  return relayable
+    ? { abi: RELAYED_ENTER_ABI, functionName: 'enterSeason', args: [user, signature], relayable: true }
+    : { abi: PUNCH_POINT_ABI, functionName: 'enterSeason', args: [signature], relayable: false };
+}
+
+/** enterSeason(address,bytes) — only valid once the overload is deployed. */
+export const RELAYED_ENTER_ABI = [
+  {
+    type: 'function',
+    name: 'enterSeason',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'signature', type: 'bytes' },
+    ],
+    outputs: [],
+  },
+];

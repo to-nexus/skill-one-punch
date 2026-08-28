@@ -46,11 +46,15 @@ async function main() {
 
   const publicClient = getPublicClient();
   const { client: walletClient, account } = getWalletClient(process.env.PRIVATE_KEY);
+  const entry = await enterSeasonCall(publicClient, verifyingContractOf(auth), {
+    user: signer.address,
+    signature: auth.signature,
+  });
   const params = {
     address: verifyingContractOf(auth),
-    abi: PUNCH_POINT_ABI,
-    functionName: 'enterSeason',
-    args: [auth.signature],
+    abi: entry.abi,
+    functionName: entry.functionName,
+    args: entry.args,
     account,
   };
   const estimated = await publicClient.estimateContractGas(params);

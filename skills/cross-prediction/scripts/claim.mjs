@@ -21,6 +21,7 @@ import {
   getEarn,
   getSummary,
   requestEnterSeason,
+  enterSeasonCall,
   requestClaim,
   verifyingContractOf,
 } from './_f2p.mjs';
@@ -105,14 +106,18 @@ async function main() {
     // First claim of a season is rejected until the wallet has entered it.
     if (res.needsSeasonEntry) {
       const auth = await requestEnterSeason(accessToken);
+      const entry = await enterSeasonCall(publicClient, verifyingContractOf(auth), {
+        user: signer.address,
+        signature: auth.signature,
+      });
       const hash = await submit({
         walletClient,
         publicClient,
         account,
         address: verifyingContractOf(auth),
-        abi: PUNCH_POINT_ABI,
-        functionName: 'enterSeason',
-        args: [auth.signature],
+        abi: entry.abi,
+        functionName: entry.functionName,
+        args: entry.args,
       });
       txs.push({ step: 'enterSeason', seasonId: auth.seasonId, hash });
       res = await requestClaim(accessToken, cursor);
