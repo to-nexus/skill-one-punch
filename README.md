@@ -1,5 +1,28 @@
 # skill-one-punch
 
+## Install — Standalone (fastest)
+
+```bash
+git clone https://github.com/to-nexus/skill-one-punch /tmp/skill-one-punch
+bash /tmp/skill-one-punch/install.sh        # symlinks into ~/.claude/skills/cross-prediction
+```
+
+## Install — Claude Code plugin (marketplace-installable)
+
+If you maintain a marketplace, add an entry pointing at this repo:
+
+```json
+{
+  "name": "cross-prediction",
+  "source": { "source": "github", "repo": "to-nexus/skill-one-punch" },
+  "category": "blockchain"
+}
+```
+
+End users then run `/plugin marketplace add <your-marketplace>` and `/plugin install cross-prediction`.
+
+---
+
 A Claude Code skill that drives **[PUNCH.WIN](https://www.punch.win)** — the prediction market on **CROSS Chain** (chain id `612055`). Lists active events, fetches event/market details with live orderbook prices, shows gas + collateral balances + CTF Share holdings, reads settled results, places YES/NO Share buy/sell through a local signer, redeems winning Shares, and runs the full **free-to-play POINT loop** (daily claim + weekly seasons) from the terminal.
 
 - **Stack:** Node 20+, viem
@@ -26,29 +49,6 @@ A Claude Code skill that drives **[PUNCH.WIN](https://www.punch.win)** — the p
 Select with `--market=usd` or `--market=point` on any command. **Without a flag the skill is season-aware:** it prefers the free POINT market while a season is live and falls back to USD during the gap between seasons (POINT markets return zero events outside a season). Every command reports which market it chose and why.
 
 Seasons run roughly weekly with a prize pool paid in ONE. Contract addresses are never hardcoded — they are resolved at runtime from each market's `GET /config`. SIWE auth sends origin `https://www.punch.win`.
-
----
-
-## Install — Standalone (fastest)
-
-```bash
-git clone https://github.com/to-nexus/skill-one-punch /tmp/skill-one-punch
-bash /tmp/skill-one-punch/install.sh        # symlinks into ~/.claude/skills/cross-prediction
-```
-
-## Install — Claude Code plugin (marketplace-installable)
-
-If you maintain a marketplace, add an entry pointing at this repo:
-
-```json
-{
-  "name": "cross-prediction",
-  "source": { "source": "github", "repo": "to-nexus/skill-one-punch" },
-  "category": "blockchain"
-}
-```
-
-End users then run `/plugin marketplace add <your-marketplace>` and `/plugin install cross-prediction`.
 
 ---
 
